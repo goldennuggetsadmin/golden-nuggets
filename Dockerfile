@@ -13,5 +13,6 @@ RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 COPY backend /app/backend
 
 WORKDIR /app/backend
+RUN chmod +x /app/backend/start.sh
 
-CMD ["python", "-c", "import os, uvicorn; uvicorn.run('server:app', host='0.0.0.0', port=int(os.environ.get('PORT', 8000)))"]
+CMD ["sh", "/app/backend/start.sh"]
