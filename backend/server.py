@@ -83,6 +83,16 @@ async def fix_db():
     return {"status": "ok", "migrations_run": len(migrations)}
 
 
+@app.get("/")
+async def root_index():
+    return {"service": "golden-nuggets-admin", "version": "1.0.0", "ok": True}
+
+
+@app.get("/health")
+async def health_root():
+    return {"status": "healthy"}
+
+
 @app.get("/api/")
 async def root():
     return {"service": "golden-nuggets-admin", "version": "1.0.0", "ok": True}
