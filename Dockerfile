@@ -14,8 +14,4 @@ COPY backend /app/backend
 
 WORKDIR /app/backend
 
-EXPOSE 8000
-
-ENV PORT=8000
-
 CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000}"]
