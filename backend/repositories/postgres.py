@@ -114,6 +114,9 @@ class PostgreSQLRepository(BaseRepository):
     def __init__(self, table_name: str):
         self.table = table_name
 
+    async def insert(self, doc: dict) -> dict:
+        return await self.insert_one(doc)
+
     async def insert_one(self, doc: dict) -> dict:
         doc_copy = dict(doc)
         if "id" not in doc_copy:
