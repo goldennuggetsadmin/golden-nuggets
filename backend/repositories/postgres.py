@@ -2,8 +2,14 @@ from __future__ import annotations
 from typing import Optional, List, Tuple
 import uuid
 import datetime
-from db import get_pool
+import db
+from db import get_pool, connect
 from .base import BaseRepository
+
+async def _acquire_conn():
+    if db._pool is None:
+        await connect()
+    return db._pool.acquire()
 
 def _row_to_dict(row) -> dict:
     if not row:
@@ -124,14 +130,14 @@ class PostgreSQLRepository(BaseRepository):
         placeholders = ", ".join(f"${i+1}" for i in range(len(keys)))
         col_names = ", ".join(keys)
         query = f"INSERT INTO {self.table} ({col_names}) VALUES ({placeholders}) RETURNING *"
-        async with get_pool().acquire() as conn:
+        async with (await _acquire_conn()) as conn:
             row = await conn.fetchrow(query, *values)
             return _row_to_dict(row)
 
     async def find_one(self, filt: dict) -> Optional[dict]:
         where, params, _ = _parse_filter(filt)
         query = f"SELECT * FROM {self.table} WHERE {where} LIMIT 1"
-        async with get_pool().acquire() as conn:
+        async with (await _acquire_conn()) as conn:
             row = await conn.fetchrow(query, *params)
             return _row_to_dict(row) if row else None
 
@@ -150,14 +156,14 @@ class PostgreSQLRepository(BaseRepository):
         if skip:
             query += f" OFFSET {skip}"
             
-        async with get_pool().acquire() as conn:
+        async with (await _acquire_conn()) as conn:
             rows = await conn.fetch(query, *params)
             return [_row_to_dict(row) for row in rows]
 
     async def count(self, filt: Optional[dict] = None) -> int:
         where, params, _ = _parse_filter(filt or {})
         query = f"SELECT COUNT(*) FROM {self.table} WHERE {where}"
-        async with get_pool().acquire() as conn:
+        async with (await _acquire_conn()) as conn:
             return await conn.fetchval(query, *params)
 
     async def update_one(self, filt: dict, patch: dict) -> int:
@@ -178,7 +184,7 @@ class PostgreSQLRepository(BaseRepository):
         ident_col = "identifier" if "identifier" in filt and self.table == "login_attempts" else "id"
         query = f"UPDATE {self.table} SET {set_str} WHERE {ident_col} IN (SELECT {ident_col} FROM {self.table} WHERE {where} LIMIT 1)"
 
-        async with get_pool().acquire() as conn:
+        async with (await _acquire_conn()) as conn:
             status = await conn.execute(query, *values, *where_params)
             return int(status.split()[-1])
 
@@ -194,7 +200,7 @@ class PostgreSQLRepository(BaseRepository):
         where, where_params, _ = _parse_filter(filt, len(values) + 1)
         
         query = f"UPDATE {self.table} SET {set_str} WHERE {where}"
-        async with get_pool().acquire() as conn:
+        async with (await _acquire_conn()) as conn:
             status = await conn.execute(query, *values, *where_params)
             return int(status.split()[-1])
 
@@ -203,14 +209,14 @@ class PostgreSQLRepository(BaseRepository):
         ident_col = "identifier" if "identifier" in filt and self.table == "login_attempts" else "id"
         query = f"DELETE FROM {self.table} WHERE {ident_col} IN (SELECT {ident_col} FROM {self.table} WHERE {where} LIMIT 1)"
 
-        async with get_pool().acquire() as conn:
+        async with (await _acquire_conn()) as conn:
             status = await conn.execute(query, *params)
             return int(status.split()[-1])
 
     async def delete_many(self, filt: dict) -> int:
         where, params, _ = _parse_filter(filt)
         query = f"DELETE FROM {self.table} WHERE {where}"
-        async with get_pool().acquire() as conn:
+        async with (await _acquire_conn()) as conn:
             status = await conn.execute(query, *params)
             return int(status.split()[-1])
 
@@ -236,7 +242,7 @@ class PostgreSQLRepository(BaseRepository):
             
             query = f"INSERT INTO {self.table} ({insert_keys_str}) VALUES ({insert_placeholders}) ON CONFLICT ({unique_key}) DO UPDATE SET {update_str}"
             
-            async with get_pool().acquire() as conn:
+            async with (await _acquire_conn()) as conn:
                 await conn.execute(query, *insert_vals)
                 return 1
                 

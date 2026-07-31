@@ -1,7 +1,6 @@
 import asyncpg
 from config.settings import settings
 import logging
-import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +30,5 @@ async def disconnect():
 def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
-        try:
-            loop = asyncio.get_running_loop()
-            # If inside running loop, trigger connect task safely
-            future = asyncio.run_coroutine_threadsafe(connect(), loop)
-            future.result(timeout=10)
-        except RuntimeError:
-            asyncio.run(connect())
+        raise RuntimeError("Database pool is not initialized. Please check DATABASE_URL.")
     return _pool
