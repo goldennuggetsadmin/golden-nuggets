@@ -31,11 +31,11 @@ app = FastAPI(title="Golden Nuggets Admin API", version="1.0.0")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS setup — allow all origins for mobile app & admin dashboard
+# CORS setup — support credentials with dynamic origin reflection for web admin & mobile clients
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origin_regex=r".*",
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
