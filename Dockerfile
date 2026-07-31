@@ -14,4 +14,6 @@ COPY backend /app/backend
 
 WORKDIR /app/backend
 
-CMD ["python", "main.py"]
+EXPOSE 8000
+
+CMD ["sh", "-c", "exec uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000}"]
