@@ -117,11 +117,9 @@ async def health():
 
 @app.on_event("startup")
 async def on_startup():
-    try:
-        await connect()
-        logger.info("Database pool initialized successfully")
-    except Exception as e:
-        logger.warning(f"Database connection deferred/failed at startup: {e}")
+    logger.info("Initializing database connection pool...")
+    await connect()
+    logger.info("Database pool initialized successfully")
     try:
         provider = get_storage_provider()
         logger.info("Storage provider ready: %s", provider.name)
