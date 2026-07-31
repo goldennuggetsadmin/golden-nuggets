@@ -110,7 +110,7 @@ def _parse_filter(filt: dict, param_offset: int = 1) -> tuple[str, list, int]:
     return " AND ".join(clauses), params, param_offset
 
 
-class PostgresRepository(BaseRepository):
+class PostgreSQLRepository(BaseRepository):
     def __init__(self, table_name: str):
         self.table = table_name
 

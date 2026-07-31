@@ -24,11 +24,9 @@ from routers.health import router as health_router
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from services.rate_limit import limiter
-
 logger = logging.getLogger(__name__)
 
-from fastapi.responses import JSONResponse
-from fastapi import Request
+app = FastAPI(title="Golden Nuggets Admin API", version="1.0.0")
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
