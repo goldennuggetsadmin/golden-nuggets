@@ -1,3 +1,4 @@
 #!/bin/sh
-echo "Starting uvicorn on 0.0.0.0:8000"
-exec uvicorn server:app --host 0.0.0.0 --port 8000
+PORT="${PORT:-8000}"
+echo "Starting uvicorn on 0.0.0.0:${PORT}"
+exec uvicorn server:app --host 0.0.0.0 --port "${PORT}"
