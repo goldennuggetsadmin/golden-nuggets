@@ -8,11 +8,11 @@ class Settings:
 
     @property
     def JWT_SECRET(self) -> str:
-        return os.environ["JWT_SECRET"]
+        return os.environ.get("JWT_SECRET", "golden-nuggets-jwt-secret-key-2026-production")
 
     @property
     def DATABASE_URL(self) -> str:
-        return os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres")
+        return os.environ.get("DATABASE_URL", "postgresql://postgres:Goldennuggets%4012345@db.ygvgezcyqctyajzjungj.supabase.co:5432/postgres")
 
     @property
     def CORS_ORIGINS(self) -> List[str]:
@@ -20,11 +20,11 @@ class Settings:
 
     @property
     def SUPABASE_URL(self) -> str:
-        return os.environ.get("SUPABASE_URL", "")
+        return os.environ.get("SUPABASE_URL", "https://ygvgezcyqctyajzjungj.supabase.co")
 
     @property
     def SUPABASE_SERVICE_ROLE_KEY(self) -> str:
-        return os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+        return os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlndmdlemN5cWN0eWFqemp1bmdqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0MDIxNTQyOSwiZXhwIjoyMDU1NzkxNDI5fQ.L38jXqD_R-aE6mG2K_6q9N0zT8")
 
     @property
     def SUPABASE_STORAGE_BUCKET(self) -> str:
