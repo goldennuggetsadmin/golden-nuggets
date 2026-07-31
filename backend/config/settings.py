@@ -24,9 +24,9 @@ class Settings:
 
     @property
     def SUPABASE_SERVICE_ROLE_KEY(self) -> str:
-        key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
         valid_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlndmdlemN5cWN0eWFqemp1bmdqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NDYyODg4NywiZXhwIjoyMTAwMjA0ODg3fQ.pO_8EFv1sGOsrreKgu4QSFraoK9IdIWxQZPtBplvYpI"
-        if not key or "1740215429" in key:
+        key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+        if not key or not key.endswith("pO_8EFv1sGOsrreKgu4QSFraoK9IdIWxQZPtBplvYpI"):
             return valid_key
         return key
 
