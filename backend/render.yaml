@@ -1,12 +1,13 @@
 services:
   - type: web
-    name: golden-nuggets-api
+    name: golden-nuggets
     env: python
-    region: singapore
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/v1/health
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
       - key: DATABASE_URL
         sync: false
       - key: SUPABASE_URL
