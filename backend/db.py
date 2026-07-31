@@ -1,6 +1,7 @@
 import asyncpg
 from config.settings import settings
 import logging
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +20,13 @@ async def connect():
         logger.error("DATABASE_URL environment variable is not set!")
         return
     try:
-        _pool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=10, ssl=ctx, command_timeout=30)
+        _pool = await asyncio.wait_for(
+            asyncpg.create_pool(dsn=dsn, min_size=1, max_size=10, ssl=ctx, command_timeout=10),
+            timeout=5.0
+        )
         logger.info("asyncpg pool created successfully")
     except Exception as e:
-        logger.error(f"asyncpg pool creation error: {e}")
+        logger.error(f"asyncpg pool creation error/timeout: {e}")
 
 async def disconnect():
     global _pool
@@ -34,5 +38,5 @@ async def disconnect():
 def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
-        raise RuntimeError("Database pool is not initialized. Please check DATABASE_URL.")
+        raise RuntimeError("Database pool is not initialized. Please check DATABASE_URL or network connection.")
     return _pool
