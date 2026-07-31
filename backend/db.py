@@ -13,8 +13,12 @@ async def connect():
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        _pool = await asyncpg.create_pool(dsn=settings.DATABASE_URL, min_size=1, max_size=10, ssl=ctx)
-        logger.info("asyncpg pool created")
+        dsn = settings.DATABASE_URL
+        if not dsn:
+            logger.error("DATABASE_URL environment variable is not set!")
+            raise ValueError("DATABASE_URL is not set in environment.")
+        _pool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=10, ssl=ctx)
+        logger.info("asyncpg pool created successfully")
 
 async def disconnect():
     global _pool
@@ -26,5 +30,5 @@ async def disconnect():
 def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
-        raise RuntimeError("Database pool is not initialized. Call connect() first.")
+        raise RuntimeError("Database pool is not initialized. Please set DATABASE_URL in environment.")
     return _pool
