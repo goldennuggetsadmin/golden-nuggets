@@ -218,7 +218,31 @@ async def list_sermons(
 
 @router.get("/sermons/{sermon_id}")
 async def get_sermon(sermon_id: str):
-    doc = await sermons_repo().find_one({"id": sermon_id, "status": "published"})
+    doc = None
+    import re
+    if re.match(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", sermon_id):
+        try:
+            doc = await sermons_repo().find_one({"id": sermon_id, "status": "published"})
+        except Exception:
+            doc = None
+    
+    if not doc:
+        try:
+            doc = await sermons_repo().find_one({"code": sermon_id, "status": "published"})
+        except Exception:
+            doc = None
+    if not doc:
+        try:
+            doc = await sermons_repo().find_one({"audio_id": sermon_id, "status": "published"})
+        except Exception:
+            doc = None
+    if not doc:
+        items = await sermons_repo().find({"status": "published"})
+        for s in items:
+            if s.get("id") == sermon_id or s.get("code") == sermon_id or s.get("audio_id") == sermon_id or (s.get("title") and sermon_id.lower() in s.get("title").lower()):
+                doc = s
+                break
+
     if not doc:
         raise HTTPException(status_code=404, detail="Not found")
     return await _project_sermon(doc)
