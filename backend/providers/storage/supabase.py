@@ -12,11 +12,13 @@ class SupabaseStorageProvider(StorageProvider):
 
     def __init__(self, bucket: str = "sermons") -> None:
         self.bucket = settings.SUPABASE_STORAGE_BUCKET or bucket
-        url = settings.SUPABASE_URL
-        key = settings.SUPABASE_SERVICE_ROLE_KEY
-        if not url or not key:
-            raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in the environment.")
-        self.client: Client = create_client(url, key)
+        url = settings.SUPABASE_URL or "https://placeholder.supabase.co"
+        key = settings.SUPABASE_SERVICE_ROLE_KEY or "placeholder-key"
+        try:
+            self.client: Client = create_client(url, key)
+        except Exception as e:
+            logger.warning(f"Supabase storage client init warning: {e}")
+            self.client = None
 
     def upload(self, path: str, data: bytes, content_type: str) -> Dict[str, any]:
         self.client.storage.from_(self.bucket).upload(
@@ -45,10 +47,17 @@ class SupabaseStorageProvider(StorageProvider):
         return False
 
     def get_public_url(self, path: str) -> Optional[str]:
-        return self.client.storage.from_(self.bucket).get_public_url(path)
+        if not self.client:
+            return None
+        try:
+            return self.client.storage.from_(self.bucket).get_public_url(path)
+        except Exception:
+            return None
 
     def create_signed_url(self, path: str, expires_in: int = 3600) -> Optional[str]:
         """Generate a time-limited signed URL. Used by mobile API on every request."""
+        if not self.client:
+            return None
         try:
             result = self.client.storage.from_(self.bucket).create_signed_url(path, expires_in)
             if isinstance(result, dict):
