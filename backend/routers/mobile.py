@@ -47,11 +47,17 @@ async def _resolve_media_url(
     Signed URLs are NEVER stored. They are generated fresh on every request.
     """
     provider = get_storage_provider()
+    import asyncio
     ttl = settings.MEDIA_URL_TTL
 
     # Priority 1: storage_path → fresh signed URL
     if storage_path:
-        return provider.create_signed_url(storage_path, ttl)
+        try:
+            url = await asyncio.to_thread(provider.create_signed_url, storage_path, ttl)
+            if url:
+                return url
+        except Exception as e:
+            logger.warning(f"Failed to generate signed URL for {storage_path}: {e}")
 
     # Priority 2: legacy URL handling
     if not legacy_url:
@@ -63,12 +69,17 @@ async def _resolve_media_url(
 
     # Admin media reference → resolve from media_assets table
     if _is_admin_media_ref(legacy_url):
-        media_id = legacy_url.split("/api/v1/admin/media/file/")[-1]
-        rec = await media_repo().find_one({"id": media_id, "is_deleted": False})
-        if rec and rec.get("storage_path"):
-            return provider.create_signed_url(rec["storage_path"], ttl)
-        # Fallback: serve via mobile proxy endpoint
-        return f"/api/v1/mobile/media/file/{media_id}"
+        try:
+            media_id = legacy_url.split("/api/v1/admin/media/file/")[-1]
+            rec = await media_repo().find_one({"id": media_id, "is_deleted": False})
+            if rec and rec.get("storage_path"):
+                url = await asyncio.to_thread(provider.create_signed_url, rec["storage_path"], ttl)
+                if url:
+                    return url
+            # Fallback: serve via mobile proxy endpoint
+            return f"/api/v1/mobile/media/file/{media_id}"
+        except Exception as e:
+            logger.warning(f"Failed to resolve media ref {legacy_url}: {e}")
 
     return legacy_url
 
