@@ -90,12 +90,20 @@ async def root():
 
 @app.get("/api/v1/health")
 async def health():
-    return {"status": "healthy", "storage": get_storage_provider().name}
+    try:
+        storage_name = get_storage_provider().name
+    except Exception:
+        storage_name = "unconfigured"
+    return {"status": "healthy", "storage": storage_name}
 
 
 @app.on_event("startup")
 async def on_startup():
-    await connect()
+    try:
+        await connect()
+        logger.info("Database pool initialized successfully")
+    except Exception as e:
+        logger.warning(f"Database connection deferred/failed at startup: {e}")
     try:
         provider = get_storage_provider()
         logger.info("Storage provider ready: %s", provider.name)
