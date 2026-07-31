@@ -116,9 +116,8 @@ async def health():
 
 @app.on_event("startup")
 async def on_startup():
-    logger.info("Triggering background database connection pool initialization...")
-    import asyncio
-    asyncio.create_task(connect())
+    logger.info("Initializing database connection pool on startup...")
+    await connect()
     try:
         provider = get_storage_provider()
         logger.info("Storage provider ready: %s", provider.name)
