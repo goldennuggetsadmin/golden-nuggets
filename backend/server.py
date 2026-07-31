@@ -27,7 +27,15 @@ from services.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Golden Nuggets Admin API", version="1.0.0")
+from fastapi.responses import JSONResponse
+from fastapi import Request
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    import traceback
+    tb = traceback.format_exc()
+    logger.error(f"Global exception on {request.url.path}: {exc}\n{tb}")
+    return JSONResponse(status_code=500, content={"error": str(exc), "type": type(exc).__name__, "path": request.url.path})
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
