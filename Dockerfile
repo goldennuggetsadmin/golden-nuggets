@@ -14,6 +14,4 @@ COPY backend /app/backend
 
 WORKDIR /app/backend
 
-ENV PORT=8000
-
 CMD ["python", "main.py"]
