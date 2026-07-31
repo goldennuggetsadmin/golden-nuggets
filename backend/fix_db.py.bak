@@ -1,0 +1,20 @@
+import asyncio
+from db import connect, close, get_pool
+from dotenv import load_dotenv
+
+load_dotenv(".env")
+load_dotenv(".env.local")
+
+async def main():
+    await connect()
+    try:
+        pool = get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("ALTER TABLE sermons ADD COLUMN IF NOT EXISTS transcript TEXT;")
+            print("Successfully added transcript column")
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        await close()
+
+asyncio.run(main())

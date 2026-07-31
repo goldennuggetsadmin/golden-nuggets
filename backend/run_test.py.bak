@@ -1,0 +1,85 @@
+import asyncio
+import os
+from dotenv import load_dotenv
+
+# Load variables
+load_dotenv(".env")
+load_dotenv(".env.local")
+
+from datetime import datetime, timezone
+from models import Sermon
+from services.sermon_service import SermonService
+from providers.storage import get_storage_provider
+from routers.sermons import _do_extract_transcripts
+from routers.mobile import list_sermons
+from db import connect as db_connect, disconnect as db_close
+
+async def main():
+    await db_connect()
+    try:
+        service = SermonService()
+        provider = get_storage_provider()
+        
+        # 1. Create a dummy PDF
+        pdf_bytes = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n5 0 obj\n<< /Length 44 >>\nstream\nBT /F1 24 Tf 100 700 Td (Hello World) Tj ET\nendstream\nendobj\nxref\n0 6\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000213 00000 n \n0000000301 00000 n \ntrailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n396\n%%EOF\n"
+        path = provider.build_upload_path("pdf", "test_manual.pdf", "testapp")
+        obj = provider.upload(path, pdf_bytes, "application/pdf")
+        storage_path = obj.get("path", path)
+        
+        print("--- Issue 1: Manual Transcript Upload ---")
+        payload = {
+            "title": "Manual Transcript Sermon 123",
+            "speaker": "Test Speaker",
+            "date": "2026-07-24",
+            "language": "English",
+            "status": "published",
+            "pdf_english_storage_path": storage_path,
+            "source": "manual"
+        }
+        sermon_model = Sermon(**payload)
+        mock_actor = {"id": "test_admin", "email": "test@test.com"}
+        doc = await service.create_sermon(sermon_model.model_dump(), mock_actor, None)
+        sermon_id = doc["id"]
+        print(f"Created manual sermon {sermon_id}")
+        
+        await _do_extract_transcripts(sermon_id)
+        
+        from routers.mobile import get_sermon
+        mobile_doc = await get_sermon(sermon_id)
+        
+        print("Transcript extracted:", len(mobile_doc.get("transcripts", [])) > 0)
+        print("Transcript parsed flag:", mobile_doc.get("transcript_parsed"))
+        if mobile_doc.get("transcripts"):
+            print("First paragraph text:", mobile_doc["transcripts"][0].get("text"))
+            
+        print("\n--- Issue 2: Series Detail Filtering ---")
+        
+        payload2 = {
+            "title": "Hebrew Sermon 123",
+            "speaker": "Test",
+            "date": "2026-07-24",
+            "language": "English",
+            "status": "published",
+            "series": "Book of Hebrew",
+            "source": "manual"
+        }
+        doc2 = await service.create_sermon(Sermon(**payload2).model_dump(), mock_actor, None)
+        
+        # Test categories
+        res_hebrew = await list_sermons(category="Book of Hebrew")
+        print(f"Sermons in 'Book of Hebrew': {res_hebrew['total']}")
+        titles_hebrew = [s['title'] for s in res_hebrew['items']]
+        print(f"Contains correct sermon: {'Hebrew Sermon 123' in titles_hebrew}")
+        print(f"Contains wrong sermon: {'Manual Transcript Sermon 123' in titles_hebrew}")
+        
+        res_general = await list_sermons(category="General")
+        print(f"Sermons in 'General' (fallback logic): {res_general['total']}")
+        titles_general = [s['title'] for s in res_general['items']]
+        print(f"Contains 'Manual Transcript Sermon 123': {'Manual Transcript Sermon 123' in titles_general}")
+        print(f"Contains 'Hebrew Sermon 123': {'Hebrew Sermon 123' in titles_general}")
+        
+    finally:
+        await db_close()
+
+if __name__ == "__main__":
+    asyncio.run(main())
