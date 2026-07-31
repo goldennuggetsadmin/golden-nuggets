@@ -24,7 +24,7 @@ class Settings:
 
     @property
     def SUPABASE_SERVICE_ROLE_KEY(self) -> str:
-        return os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlndmdlemN5cWN0eWFqemp1bmdqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0MDIxNTQyOSwiZXhwIjoyMDU1NzkxNDI5fQ.L38jXqD_R-aE6mG2K_6q9N0zT8")
+        return os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlndmdlemN5cWN0eWFqemp1bmdqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NDYyODg4NywiZXhwIjoyMTAwMjA0ODg3fQ.pO_8EFv1sGOsrreKgu4QSFraoK9IdIWxQZPtBplvYpI")
 
     @property
     def SUPABASE_STORAGE_BUCKET(self) -> str:
