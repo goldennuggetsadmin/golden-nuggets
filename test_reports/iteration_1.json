@@ -1,0 +1,31 @@
+{
+  "summary": "Full backend + frontend testing of Sanctuary. Backend: 14/14 pytest pass covering health, categories (10), testimonies list/get/404, home feed (continue_listening progress 0<x<1, recently_added, featured, popular, categories), PATCH favorite (with GET verify), search all/speaker, PDF transcript upload English + Telugu, Telugu upsert semantics (single entry, new URL), invalid language 400, media serving with content-type, media 404, and global _id leak check across categories/testimonies/home. Frontend (mobile 390x844): Home renders Continue Listening card (Grace Upon Grace), Recently Added carousel (8 cards), Featured Series, Categories grid (6), Most Popular list (4). Tab navigation to Search/Library/Downloads/More all work. Search input filters live, filter chips capitalized like search-filter-Speaker (Speaker chip constrains results to Jenkins). Library favorites tab present. Downloads screen shows Storage card + 3 tab chips (Downloading/Downloaded/Paused). More/Settings shows Light/Dark theme toggles. Message card tap opens /player modal; player-play-pause, player-rate (cycles 1x->1.25x verified), player-rewind, player-forward, open-transcript all present and interactive. Transcript overlay opens with English/Telugu language toggle, A-/A+ font controls, and displays uploaded English PDF text 'Peace I leave with you...' - end-to-end PDF ingestion → mobile display confirmed. No deprecated Expo packages (uses expo-audio, not expo-av). No RN red-screen errors. Only benign RN-web warnings: shadow* and pointerEvents deprecation.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "RN Web console warnings", "issue": "Non-blocking web-only warnings: 'shadow* style props are deprecated. Use boxShadow' and 'props.pointerEvents is deprecated. Use style.pointerEvents'. Sources: shadows.elevated/glow tokens (src/theme/tokens) and pointerEvents props on (tabs)/_layout.tsx View wrapper. Cosmetic on web preview only; safe to migrate later."}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_sanctuary_api.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "(Optional/minor) Migrate 'shadow*' style props to boxShadow in src/theme/tokens shadows.elevated/shadows.glow to silence RN-web warning.",
+    "(Optional/minor) Move pointerEvents='box-none'/'auto' from props to style in app/(tabs)/_layout.tsx miniWrap wrapper."
+  ],
+  "critical_code_review_comments": [
+    "Clean layered architecture: FastAPI controllers → services → repositories → Motor. MongoDB _id is projected out at repo layer (_PROJECT = {\"_id\": 0}) — no leaks confirmed.",
+    "PDF text extraction via pdfplumber inside services.attach_transcript; extraction wrapped in try/except so upload never fails on malformed PDFs (text becomes '').",
+    "Upsert semantics for transcripts implemented correctly via $pull then $push (single entry per language) — verified with Telugu re-upload changing pdf_url.",
+    "Frontend uses process.env.EXPO_PUBLIC_BACKEND_URL via api client; testIDs consistently applied on all interactive elements.",
+    "Player rate button label formatting uses .toFixed(rate === 1 ? 1 : 2).replace(/0$/, \"\") producing '1.×' when rate=1.0 (trailing dot). Cosmetic — consider `rate === 1 ? '1×' : \\`${rate}×\\``."
+  ],
+  "updated_files": ["/app/backend/tests/test_sanctuary_api.py"],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% of tested flows"},
+  "seed_data_creation": "Generated /tmp/sample_en.pdf, /tmp/sample_te.pdf, /tmp/sample_te_v2.pdf via fpdf2 for transcript upload tests. Backend seed (10 testimonies) already present from prior `python -m seed_demo`.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend URL: https://sermon-stream-9.preview.emergentagent.com (API prefix /api). Pytest suite at /app/backend/tests/test_sanctuary_api.py — run with EXPO_PUBLIC_BACKEND_URL env var or defaults. Sample PDFs in /tmp/. Frontend testIDs are capitalized for search-filter-{All|Title|Speaker|Category|Year|Language|Transcript} and downloads-tab-{Downloading|Downloaded|Paused}; library-tab-{favorites|recent|downloads|notes|highlights|history} lowercase. Player rate label shows '1.×' at 1.0x due to a regex quirk — cosmetic only.",
+  "rca_of_issue": "N/A — no regressions found. Player rate cosmetic quirk RCA: `(1.0).toFixed(1)` returns '1.0', `.replace(/0$/, '')` strips the trailing 0 leaving '1.'. Fix: special-case rate===1."
+}
