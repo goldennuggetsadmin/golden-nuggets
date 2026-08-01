@@ -2,7 +2,7 @@
   "expo": {
     "name": "Golden Nuggets",
     "slug": "golden-nuggets",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/app-icon.png",
     "scheme": "goldennuggets",
@@ -19,7 +19,7 @@
       }
     },
     "android": {
-      "versionCode": 1,
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/app-icon.png",
         "backgroundColor": "#0B0F0E"
