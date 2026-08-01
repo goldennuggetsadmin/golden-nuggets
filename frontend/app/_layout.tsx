@@ -52,7 +52,7 @@ function OnboardingGate() {
 }
 
 function AppTree() {
-  const { colors } = useTheme();
+  const { colors, theme } = useTheme();
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>
@@ -62,7 +62,7 @@ function AppTree() {
             <DownloadsProvider>
               <PlayerProvider>
                 <View style={{ flex: 1, backgroundColor: colors.background }}>
-                  <StatusBar style="light" />
+                  <StatusBar style={theme === "dark" ? "light" : "dark"} />
                   <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
                     <Stack.Screen name="(tabs)" />
                     <Stack.Screen

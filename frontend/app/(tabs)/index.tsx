@@ -53,12 +53,23 @@ export default function HomeScreen() {
   }, [appLanguage]);
 
   const load = useCallback(async (lang: string) => {
+    // 1. Instant Cache Load (<20ms)
+    const cached = await api.getCachedHome(lang);
+    if (cached) {
+      setFeed(cached);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     setError(false);
+
+    // 2. Silent Background Refresh
     try {
       const f = await api.home(lang);
       setFeed(f);
+      setError(false);
     } catch {
-      setError(true);
+      if (!cached) setError(true);
     } finally {
       setLoading(false);
       setRefreshing(false);

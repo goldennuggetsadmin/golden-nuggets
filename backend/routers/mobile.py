@@ -13,6 +13,7 @@ from config.settings import settings
 from models import MobileEvent
 from repositories.entities import sermons_repo, meetings_repo, categories_repo, home_repo, analytics_repo, media_repo, notifications_repo
 from services.serialization import clean_list
+from services.sermon_service import filter_sermons_by_series
 from providers.storage import get_storage_provider
 
 router = APIRouter(prefix="/api/v1/mobile", tags=["mobile"])
@@ -183,19 +184,8 @@ async def list_sermons(
     if year:
         filt["year"] = year
     
-    # Check both 'series' and 'category' query params since mobile app might send 'category'
+    # Single source of truth series/category query filter via shared sermon_service
     requested_series = series or category
-    if requested_series:
-        if requested_series.lower() == "general":
-            # "General" series means either assigned to "General" or has no series
-            filt["$or"] = [
-                {"series": {"$regex": "general", "$options": "i"}},
-                {"series": None},
-                {"series": ""},
-                {"series": {"$exists": False}}
-            ]
-        else:
-            filt["series"] = {"$regex": requested_series, "$options": "i"}
 
     if category_id:
         filt["category_ids"] = category_id
@@ -203,15 +193,19 @@ async def list_sermons(
         filt["featured"] = featured
 
     repo = sermons_repo()
-    total = await repo.count(filt)
-    items = await repo.find(
+    raw_items = await repo.find(
         filt,
         sort=[(sort, -1 if order == "desc" else 1)],
-        skip=max(0, (page - 1) * page_size),
-        limit=page_size,
     )
+    items = filter_sermons_by_series(raw_items, requested_series)
+    total = len(items)
+    
+    # Apply pagination on filtered items
+    start_idx = max(0, (page - 1) * page_size)
+    paginated_items = items[start_idx : start_idx + page_size]
+
     projected_items = []
-    for s in items:
+    for s in paginated_items:
         projected_items.append(await _project_sermon(s))
     return {"items": projected_items, "total": total, "page": page, "page_size": page_size}
 

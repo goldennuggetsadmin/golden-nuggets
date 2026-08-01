@@ -10,12 +10,14 @@ import { api, Testimony } from "@/src/api/client";
 import { SermonCard } from "@/src/components/SermonCard";
 import { usePlayer } from "@/src/player/PlayerContext";
 import { getContentType } from "@/src/utils/sermonUtils";
+import { useSettings } from "@/src/settings/SettingsContext";
 
 export default function SeriesScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ title: string }>();
   const p = usePlayer();
   const { colors, theme } = useTheme();
+  const { appLanguage } = useSettings();
   const styles = getStyles(colors, theme);
 
   const [sermons, setSermons] = useState<Testimony[]>([]);
@@ -25,11 +27,12 @@ export default function SeriesScreen() {
 
   useEffect(() => {
     setLoading(true);
-    api.listTestimonies({ category: seriesTitle })
+    const languageParam = appLanguage === "te" ? "Telugu" : "English";
+    api.listTestimonies({ category: seriesTitle, language: languageParam })
       .then((data) => setSermons(data))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [seriesTitle]);
+  }, [seriesTitle, appLanguage]);
 
   const handleStartFromBeginning = () => {
     if (sermons.length === 0) return;

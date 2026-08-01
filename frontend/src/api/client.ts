@@ -2,6 +2,7 @@
  * Backend API client — talks directly to the Golden Nuggets FastAPI REST API (`/api/v1/mobile`).
  */
 import { storage } from "@/src/utils/storage";
+import { cacheStore } from "@/src/utils/cache";
 import { userStore, UserNote, UserHighlight, ReadingProgressState, UserHistoryItem, NoteCollection } from "@/src/utils/userStore";
 export type { UserNote, UserHighlight, ReadingProgressState, UserHistoryItem, NoteCollection };
 import {
@@ -147,19 +148,32 @@ async function j<T>(path: string, init: RequestInit = {}, retries = 1): Promise<
 export const api = {
   base: BASE,
 
+  getCachedHome: async (language?: string): Promise<HomeFeed | undefined> => {
+    return cacheStore.get<HomeFeed>(`home_${language || "default"}`);
+  },
+
   home: async (language?: string): Promise<HomeFeed> => {
-    const qs = language ? `?language=${language}` : "";
-    const raw = await j<BackendHomePayload>(`/home${qs}`);
-    return adaptHomeFeed(raw);
+    const cacheKey = `home_${language || "default"}`;
+    const raw = await j<BackendHomePayload>(`/home${language ? `?language=${language}` : ""}`);
+    const adapted = adaptHomeFeed(raw);
+    cacheStore.set(cacheKey, adapted);
+    return adapted;
+  },
+
+  getCachedTestimonies: async (paramsKey = "all"): Promise<Testimony[] | undefined> => {
+    return cacheStore.get<Testimony[]>(`sermons_${paramsKey}`);
   },
 
   listTestimonies: async (params: Record<string, string | boolean | number> = {}): Promise<Testimony[]> => {
+    const cacheKey = `sermons_${JSON.stringify(params)}`;
     const qs = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => qs.set(k, String(v)));
     const res = await j<{ items: BackendSermon[]; total: number }>(`/sermons${qs.toString() ? `?${qs}` : ""}`);
     const favs = await userStore.getFavorites();
     const progs = await userStore.getProgressMap();
-    return Promise.all((res.items || []).map((s) => adaptSermon(s, favs, progs)));
+    const adapted = await Promise.all((res.items || []).map((s) => adaptSermon(s, favs, progs)));
+    cacheStore.set(cacheKey, adapted);
+    return adapted;
   },
 
   getTestimony: async (id: string): Promise<Testimony> => {
