@@ -78,15 +78,54 @@ export default function PlayerScreen() {
     toast.show("Downloading…", "info");
   };
 
+  const closePlayer = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace({ pathname: "/reading-mode", params: { id: m.id } });
+    }
+  };
+
+  const translateY = useRef(new Animated.Value(0)).current;
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return gestureState.dy > 10 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) {
+          translateY.setValue(gestureState.dy);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 80 || gestureState.vy > 0.5) {
+          Animated.timing(translateY, {
+            toValue: 500,
+            duration: 180,
+            useNativeDriver: true,
+          }).start(() => {
+            closePlayer();
+          });
+        } else {
+          Animated.spring(translateY, {
+            toValue: 0,
+            friction: 8,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    })
+  ).current;
+
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
+    <Animated.View style={{ flex: 1, backgroundColor: colors.background, transform: [{ translateY }] }} {...panResponder.panHandlers}>
       <View style={StyleSheet.absoluteFillObject}>
         <Image source={require('@/assets/images/banner.png')} style={{ width: "100%", height: "100%", opacity: 0.4, transform: [{ scale: 1.25 }] }} contentFit="cover" blurRadius={40} cachePolicy="memory-disk" />
         <LinearGradient colors={theme === "dark" ? ["rgba(11,15,14,0.6)", "rgba(11,15,14,0.85)", colors.background] : ["rgba(255,255,255,0.6)", "rgba(255,255,255,0.85)", colors.background]} style={StyleSheet.absoluteFillObject} />
       </View>
 
       <View style={[styles.topBar, { paddingTop: insets.top + spacing[2] }]}>
-        <Pressable testID="player-close" onPress={() => (router.canGoBack() ? router.back() : router.replace("/(tabs)"))} style={styles.topBtn}>
+        <Pressable testID="player-close" onPress={closePlayer} style={styles.topBtn}>
           <Ionicons name="chevron-down" size={22} color={colors.foreground} />
         </Pressable>
         <View style={{ alignItems: "center" }}>
@@ -190,7 +229,7 @@ export default function PlayerScreen() {
         onChange={(v) => p.setRate(v as number)}
         options={RATES.map((r) => ({ value: r, label: r === 1 ? "1× (normal)" : `${r}×` }))}
       />
-    </View>
+    </Animated.View>
   );
 }
 

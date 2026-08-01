@@ -95,13 +95,7 @@ export default function HomeScreen() {
   const badgeText = notificationStore.getUnreadBadgeText(unreadCount);
 
   const openSermon = (m: Testimony) => {
-    const type = getContentType(m);
-    if (type === "transcript") {
-      router.push({ pathname: "/reading-mode", params: { id: m.id } });
-    } else {
-      p.play(m);
-      router.push("/player");
-    }
+    p.selectSermon(m);
   };
 
   if (loading) {
@@ -184,8 +178,22 @@ export default function HomeScreen() {
           onPress={() => openSermon(cont)}
           style={({ pressed }) => [styles.contWrap, { opacity: pressed ? 0.96 : 1 }, shadows.elevated]}
         >
-          {cont.art_url ? <Image source={{ uri: cont.art_url }} style={StyleSheet.absoluteFillObject} contentFit="cover" cachePolicy="memory-disk" /> : null}
-          <LinearGradient colors={theme === "dark" ? ["rgba(0,0,0,0)", "rgba(0,0,0,0.55)", "rgba(11,15,14,1)"] : ["rgba(255,255,255,0)", "rgba(255,255,255,0.55)", "rgba(250,250,250,1)"]} style={StyleSheet.absoluteFillObject} />
+          <View style={[StyleSheet.absoluteFillObject, { overflow: "hidden" }]}>
+            <Image
+              source={require('@/assets/images/banner.png')}
+              style={[StyleSheet.absoluteFillObject, { width: "65%", left: "35%", opacity: 0.85 }]}
+              contentFit="cover"
+              contentPosition="right center"
+              cachePolicy="memory-disk"
+            />
+          </View>
+          <LinearGradient
+            colors={["#181C1A", "rgba(24,28,26,0.95)", "rgba(24,28,26,0.50)", "rgba(24,28,26,0.15)"]}
+            locations={[0, 0.45, 0.75, 1]}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={StyleSheet.absoluteFillObject}
+          />
           <View style={styles.contInner}>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.contEyebrow}>
@@ -205,7 +213,7 @@ export default function HomeScreen() {
               ) : null}
             </View>
             <View style={[styles.playFab, shadows.glow]}>
-              <Ionicons name={contType === "transcript" ? "book" : "play"} size={24} color={theme === "dark" ? colors.background : "#fff"} style={contType === "transcript" ? undefined : { marginLeft: 2 }} />
+              <Ionicons name={contType === "transcript" ? "book" : "play"} size={24} color="#FFFFFF" style={contType === "transcript" ? undefined : { marginLeft: 2 }} />
             </View>
           </View>
         </Pressable>
@@ -319,15 +327,15 @@ const getStyles = (colors: any, theme: string) => StyleSheet.create({
     color: "#FFFFFF",
     textAlign: "center",
   },
-  contWrap: { marginHorizontal: spacing[5], marginTop: spacing[2], borderRadius: radii["3xl"], overflow: "hidden", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.hairline, minHeight: 190 },
+  contWrap: { marginHorizontal: spacing[5], marginTop: spacing[2], borderRadius: radii["3xl"], overflow: "hidden", backgroundColor: "#181C1A", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", minHeight: 190 },
   contInner: { flexDirection: "row", alignItems: "flex-end", gap: spacing[4], padding: spacing[4], paddingTop: 64 },
-  contEyebrow: { fontSize: 10, letterSpacing: 1.8, color: colors.gold, fontFamily: typography.sansSemi, marginBottom: 6 },
-  contTitle: { fontSize: 20, lineHeight: 24, color: colors.foreground, fontFamily: typography.serif },
-  contSpeaker: { marginTop: 4, fontSize: 13, color: colors.mutedForeground, fontFamily: typography.sans, marginBottom: 4 },
+  contEyebrow: { fontSize: 10, letterSpacing: 1.8, color: "#F59E0B", fontFamily: typography.sansSemi, marginBottom: 6 },
+  contTitle: { fontSize: 20, lineHeight: 24, color: "#FFFFFF", fontFamily: typography.serif },
+  contSpeaker: { marginTop: 4, fontSize: 13, color: "rgba(255,255,255,0.75)", fontFamily: typography.sans, marginBottom: 4 },
   progressRow: { flexDirection: "row", alignItems: "center", gap: spacing[3], marginTop: spacing[3] },
-  progressTrack: { flex: 1, height: 4, backgroundColor: colors.white10, borderRadius: 2, overflow: "hidden" },
+  progressTrack: { flex: 1, height: 4, backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 2, overflow: "hidden" },
   progressFill: { height: 4, backgroundColor: colors.emerald },
-  progressText: { fontSize: 11, color: colors.mutedForeground, fontFamily: typography.sansMedium, fontVariant: ["tabular-nums"] },
+  progressText: { fontSize: 11, color: "rgba(255,255,255,0.75)", fontFamily: typography.sansMedium, fontVariant: ["tabular-nums"] },
   playFab: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center", backgroundColor: colors.emerald },
   seeAll: { fontSize: 10, letterSpacing: 1.8, color: colors.gold, fontFamily: typography.sansSemi, textTransform: "uppercase" },
   meetingCard: {

@@ -109,7 +109,7 @@ export default function TabsLayout() {
         />
       </Tabs>
 
-      <View pointerEvents="box-none" style={[styles.miniWrap, { bottom: barHeight + 4 }]}>
+      <View pointerEvents="box-none" style={[styles.miniWrap, { bottom: barHeight + 12 }]}>
         <View pointerEvents="auto" style={{ paddingHorizontal: spacing[3] }}>
           <MiniPlayer />
         </View>

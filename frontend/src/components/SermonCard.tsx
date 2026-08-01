@@ -28,12 +28,7 @@ export function SermonCard({ sermon, onPress, horizontal = false }: SermonCardPr
       onPress();
       return;
     }
-    if (type === "transcript") {
-      router.push({ pathname: "/reading-mode", params: { id: sermon.id } });
-    } else {
-      p.play(sermon);
-      router.push("/player");
-    }
+    p.selectSermon(sermon);
   };
 
   if (horizontal) {

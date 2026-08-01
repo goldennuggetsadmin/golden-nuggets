@@ -27,6 +27,7 @@ import { buildTranscriptDocument, Paragraph, TranscriptDocument } from "@/src/mo
 import { useReadingEngine } from "@/src/hooks/useReadingEngine";
 import { ReadingParagraphRow } from "@/src/components/ReadingParagraphRow";
 import { UserHighlight } from "@/src/utils/userStore";
+import { Skeleton } from "@/src/components/Skeleton";
 
 export default function ReadingModeScreen() {
   const insets = useSafeAreaInsets();
@@ -355,13 +356,41 @@ export default function ReadingModeScreen() {
 
   const estimatedItemSize = Math.round(fontSize * 1.7 * 3.5 + 24);
 
+  const returnToLiveAnim = useRef(new Animated.Value(showReturnToLive ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(returnToLiveAnim, {
+      toValue: showReturnToLive ? 1 : 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  }, [showReturnToLive, returnToLiveAnim]);
+
   if (loading || !sermon) {
     return (
       <View style={[styles.container, { paddingTop: insets.top + spacing[4], paddingHorizontal: spacing[5] }]}>
-        <Text style={{ color: colors.mutedForeground, marginTop: 40 }}>Loading Reading Mode…</Text>
+        <View style={{ gap: spacing[4], marginTop: spacing[6] }}>
+          <Skeleton style={{ height: 28, width: "70%" }} />
+          <Skeleton style={{ height: 16, width: "40%" }} />
+          <Skeleton style={{ height: 80, width: "100%", marginTop: spacing[4] }} />
+          <Skeleton style={{ height: 120, width: "100%" }} />
+          <Skeleton style={{ height: 90, width: "100%" }} />
+          <Skeleton style={{ height: 110, width: "100%" }} />
+        </View>
       </View>
     );
   }
+
+  const isMiniPlayerActive = Boolean(p.current && !p.isDismissed);
+  const dockHeight = isMiniPlayerActive ? 68 + Math.max(insets.bottom, 12) : 0;
+  const bottomPadding = dockHeight + 16;
+  const returnToLiveBottom = dockHeight + 14;
+
+  const returnToLiveOpacity = returnToLiveAnim;
+  const returnToLiveTranslateY = returnToLiveAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [16, 0],
+  });
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -426,44 +455,65 @@ export default function ReadingModeScreen() {
             onScrollBeginDrag={handleManualScrollBegin}
             contentContainerStyle={{
               paddingHorizontal: spacing[3],
-              paddingBottom: insets.bottom + 140,
+              paddingBottom: bottomPadding,
             }}
           />
         )}
       </View>
 
       {/* Floating Circular "Return to Live" Button */}
-      {showReturnToLive ? (
-        <Animated.View style={styles.returnToLiveWrap}>
-          <Pressable
-            onPress={() => {
-              handleReturnToLive((activeNum) => {
-                if (doc?.paragraphs && flashListRef.current) {
-                  const idx = doc.paragraphs.findIndex(
-                    (p) => p.paragraph_number === activeNum
-                  );
-                  if (idx >= 0) {
-                    flashListRef.current.scrollToIndex({
-                      index: idx,
-                      viewPosition: 0.42,
-                      animated: true,
-                    });
-                  }
+      <Animated.View
+        pointerEvents={showReturnToLive ? "auto" : "none"}
+        style={[
+          styles.returnToLiveWrap,
+          {
+            bottom: returnToLiveBottom,
+            opacity: returnToLiveOpacity,
+            transform: [{ translateY: returnToLiveTranslateY }],
+          },
+        ]}
+      >
+        <Pressable
+          onPress={() => {
+            handleReturnToLive((activeNum) => {
+              if (doc?.paragraphs && flashListRef.current) {
+                const idx = doc.paragraphs.findIndex(
+                  (p) => p.paragraph_number === activeNum
+                );
+                if (idx >= 0) {
+                  flashListRef.current.scrollToIndex({
+                    index: idx,
+                    viewPosition: 0.42,
+                    animated: true,
+                  });
                 }
-              });
-            }}
-            style={styles.returnToLiveBtn}
-          >
-            <Ionicons name="arrow-up" size={16} color={colors.background} />
-            <Text style={styles.returnToLiveText}>Return to Live</Text>
-          </Pressable>
-        </Animated.View>
-      ) : null}
+              }
+            });
+          }}
+          style={styles.returnToLiveBtn}
+        >
+          <Ionicons name="arrow-up" size={16} color={colors.background} />
+          <Text style={styles.returnToLiveText}>Return to Live</Text>
+        </Pressable>
+      </Animated.View>
 
-      {/* Persistent Docked Player */}
-      <View style={styles.dockedPlayerWrap}>
-        <MiniPlayer />
-      </View>
+      {/* Curved Bottom Dock for Mini Player */}
+      {isMiniPlayerActive && (
+        <View
+          style={[
+            styles.bottomDock,
+            {
+              height: dockHeight,
+              backgroundColor: theme === "dark" ? "rgba(11,15,14,0.98)" : "rgba(250,250,250,0.98)",
+              paddingBottom: Math.max(insets.bottom, 12),
+            },
+          ]}
+        >
+          <View style={{ paddingHorizontal: spacing[3] }}>
+            <MiniPlayer />
+          </View>
+        </View>
+      )}
 
       {/* ─── Paragraph Action Bottom Sheet ─── */}
       {isActionSheetOpen && selectedParagraph ? (
@@ -716,9 +766,21 @@ const getStyles = (colors: any, theme: string) =>
     },
     dockedPlayerWrap: {
       position: "absolute",
+      left: spacing[3],
+      right: spacing[3],
+    },
+    bottomDock: {
+      position: "absolute",
       bottom: 0,
       left: 0,
       right: 0,
+      borderTopLeftRadius: radii["3xl"],
+      borderTopRightRadius: radii["3xl"],
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      justifyContent: "flex-end",
+      overflow: "hidden",
+      zIndex: 90,
     },
     sheetOverlay: {
       ...StyleSheet.absoluteFillObject,

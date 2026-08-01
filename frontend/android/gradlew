@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# Add common node paths for macOS GUI apps
+export PATH=$PATH:/usr/local/bin:/opt/homebrew/bin
+
 #
 # Copyright © 2015-2021 the original authors.
 #

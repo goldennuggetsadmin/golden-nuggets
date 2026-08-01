@@ -14,8 +14,7 @@ import { useToast } from "@/src/toast/ToastContext";
 function useOpen() {
   const p = usePlayer();
   return async (m: Testimony) => {
-    await p.play(m);
-    router.push("/player");
+    await p.selectSermon(m);
   };
 }
 

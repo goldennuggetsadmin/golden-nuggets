@@ -1,8 +1,37 @@
 pluginManagement {
+  def findNodeBin = { ->
+    def userHome = System.getProperty("user.home")
+    def candidatePaths = [
+      settings.hasProperty("NODE_BINARY") ? settings.NODE_BINARY : null,
+      "/usr/local/bin/node",
+      "/opt/homebrew/bin/node",
+      userHome + "/Library/pnpm/bin/node",
+      userHome + "/.nvm/versions/node/" + (System.getenv("NODE_VERSION") ?: "") + "/bin/node",
+      userHome + "/.nvm/current/bin/node",
+      userHome + "/.asdf/shims/node",
+      userHome + "/.local/share/mise/shims/node",
+      "/usr/bin/node"
+    ]
+    for (path in candidatePaths) {
+      if (path && new File(path).exists()) return path
+    }
+    // Fallback to 'which node' if absolute paths fail
+    try {
+      def proc = "which node".execute()
+      proc.waitFor()
+      if (proc.exitValue() == 0) return proc.text.trim()
+    } catch (all) {}
+    return "node"
+  }
+  def nodeExecutable = findNodeBin()
+  System.setProperty("NODE_BINARY", nodeExecutable)
+  System.setProperty("node", nodeExecutable)
+  System.setProperty("expo.nodeExecutable", nodeExecutable)
+
   def reactNativeGradlePlugin = new File(
     providers.exec {
       workingDir(rootDir)
-      commandLine("node", "--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })")
+      commandLine(nodeExecutable, "--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })")
     }.standardOutput.asText.get().trim()
   ).getParentFile().absolutePath
   includeBuild(reactNativeGradlePlugin)
@@ -10,7 +39,7 @@ pluginManagement {
   def expoPluginsPath = new File(
     providers.exec {
       workingDir(rootDir)
-      commandLine("node", "--print", "require.resolve('expo-modules-autolinking/package.json', { paths: [require.resolve('expo/package.json')] })")
+      commandLine(nodeExecutable, "--print", "require.resolve('expo-modules-autolinking/package.json', { paths: [require.resolve('expo/package.json')] })")
     }.standardOutput.asText.get().trim(),
     "../android/expo-gradle-plugin"
   ).absolutePath
@@ -19,6 +48,7 @@ pluginManagement {
 
 plugins {
   id("com.facebook.react.settings")
+
   id("expo-autolinking-settings")
 }
 

@@ -33,14 +33,7 @@ export default function SeriesScreen() {
 
   const handleStartFromBeginning = () => {
     if (sermons.length === 0) return;
-    const first = sermons[0];
-    const type = getContentType(first);
-    if (type === "transcript") {
-      router.push({ pathname: "/reading-mode", params: { id: first.id } });
-    } else {
-      p.play(first);
-      router.push("/player");
-    }
+    p.selectSermon(sermons[0]);
   };
 
   return (
