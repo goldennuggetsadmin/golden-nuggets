@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Alert,
   Animated,
+  Keyboard,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -53,6 +55,35 @@ export default function ReadingModeScreen() {
   const [collections, setCollections] = useState<NoteCollection[]>([]);
   const [isCreatingCollection, setIsCreatingCollection] = useState(false);
   const [newCollectionTitle, setNewCollectionTitle] = useState("");
+
+  const keyboardHeight = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === "android" ? "keyboardDidShow" : "keyboardWillShow",
+      (e) => {
+        Animated.timing(keyboardHeight, {
+          toValue: e.endCoordinates.height,
+          duration: Platform.OS === "android" ? 200 : e.duration || 250,
+          useNativeDriver: false,
+        }).start();
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === "android" ? "keyboardDidHide" : "keyboardWillHide",
+      (e) => {
+        Animated.timing(keyboardHeight, {
+          toValue: 0,
+          duration: Platform.OS === "android" ? 200 : (e ? e.duration : 250),
+          useNativeDriver: false,
+        }).start();
+      }
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const flashListRef = useRef<any>(null);
 
@@ -593,7 +624,16 @@ export default function ReadingModeScreen() {
       {isCollectionPickerOpen ? (
         <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
           <Pressable style={styles.sheetOverlay} onPress={() => setIsCollectionPickerOpen(false)} />
-          <View style={[styles.sheetContent, { backgroundColor: colors.background, borderColor: colors.hairline }]}>
+          <Animated.View
+            style={[
+              styles.sheetContent,
+              {
+                backgroundColor: colors.background,
+                borderColor: colors.hairline,
+                bottom: keyboardHeight,
+              },
+            ]}
+          >
             <View style={styles.sheetHandle} />
 
             <Text style={styles.sheetHeader}>
@@ -665,7 +705,7 @@ export default function ReadingModeScreen() {
                 </Pressable>
               </ScrollView>
             )}
-          </View>
+          </Animated.View>
         </View>
       ) : null}
     </View>

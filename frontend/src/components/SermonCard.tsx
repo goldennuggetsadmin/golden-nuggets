@@ -16,7 +16,7 @@ interface SermonCardProps {
   horizontal?: boolean;
 }
 
-export function SermonCard({ sermon, onPress, horizontal = false }: SermonCardProps) {
+export const SermonCard = React.memo(function SermonCard({ sermon, onPress, horizontal = false }: SermonCardProps) {
   const p = usePlayer();
   const type = getContentType(sermon);
   const { colors, theme } = useTheme();
@@ -62,7 +62,7 @@ export function SermonCard({ sermon, onPress, horizontal = false }: SermonCardPr
       <SermonBadge type={type} size="sm" />
     </Pressable>
   );
-}
+});
 
 const getStyles = (colors: any, theme: string) => StyleSheet.create({
   card: {

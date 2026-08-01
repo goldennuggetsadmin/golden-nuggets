@@ -15,6 +15,7 @@ from repositories.entities import sermons_repo, meetings_repo, categories_repo, 
 from services.serialization import clean_list
 from services.sermon_service import filter_sermons_by_series
 from providers.storage import get_storage_provider
+from services.meeting_service import is_meeting_expired
 
 router = APIRouter(prefix="/api/v1/mobile", tags=["mobile"])
 
@@ -272,8 +273,10 @@ async def list_meetings(status: Optional[str] = None):
     items = await meetings_repo().find(filt, sort=[("start_date", 1)], limit=200)
     projected = []
     for m in items:
+        if (status == "upcoming" or not status) and is_meeting_expired(m):
+            continue
         projected.append(await _project_meeting(m))
-    return {"items": projected, "total": len(items)}
+    return {"items": projected, "total": len(projected)}
 
 
 @router.get("/meetings/{meeting_id}")
@@ -339,23 +342,28 @@ async def home(language: Optional[str] = None):
         for s in rows:
             recent.append(await _project_sermon(s))
 
-    # Meetings are ALWAYS shown regardless of language
+    # Meetings are ALWAYS shown regardless of language (strictly non-expired)
     upcoming = []
     if home.get("show_upcoming_meetings", True):
         selected = home.get("upcoming_meeting_ids", []) or []
         if selected:
             for mid in selected:
                 m = await meetings.find_one({"id": mid})
-                if m:
+                if m and not is_meeting_expired(m):
                     upcoming.append(await _project_meeting(m))
-        else:
+        
+        # Fallback to query if selected meetings are empty or all expired
+        if not upcoming:
             rows = await meetings.find(
                 {"status": {"$in": ["upcoming", "live"]}, "is_archived": {"$ne": True}},
                 sort=[("start_date", 1)],
-                limit=5,
+                limit=10,
             )
             for m in rows:
-                upcoming.append(await _project_meeting(m))
+                if not is_meeting_expired(m):
+                    upcoming.append(await _project_meeting(m))
+                    if len(upcoming) >= (home.get("upcoming_meetings_count") or 5):
+                        break
 
     cats = []
     for cid in home.get("category_ids", []) or []:

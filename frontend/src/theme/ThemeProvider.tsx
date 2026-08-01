@@ -3,6 +3,8 @@ import { LayoutAnimation, Platform, UIManager, useColorScheme } from "react-nati
 import { storage } from "@/src/utils/storage";
 import { darkTheme, lightTheme, ThemeColors } from "./tokens";
 
+import * as SystemUI from "expo-system-ui";
+
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
@@ -29,6 +31,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       setIsLoaded(true);
     });
   }, []);
+
+  useEffect(() => {
+    if (Platform.OS === "android") {
+      const navBg = theme === "dark" ? "#0B0F0E" : "#FAFAFA";
+      SystemUI.setBackgroundColorAsync(navBg).catch(() => {});
+    }
+  }, [theme]);
 
   const setTheme = (newTheme: "light" | "dark") => {
     if (newTheme === theme) return;

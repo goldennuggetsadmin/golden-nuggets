@@ -264,9 +264,9 @@ export default function HomeScreen() {
             </Pressable>
           }
         />
-        {feed.recently_added.length > 0 ? (
+        {(feed?.recently_added || []).length > 0 ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: spacing[5], paddingTop: spacing[4], paddingBottom: 4 }}>
-            {feed.recently_added.map((m) => (
+            {(feed?.recently_added || []).map((m) => (
               <SermonCard key={m.id} sermon={m} />
             ))}
           </ScrollView>

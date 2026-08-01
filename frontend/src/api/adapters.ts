@@ -182,6 +182,24 @@ export async function adaptSermon(
   };
 }
 
+export function isMeetingExpired(m: BackendMeeting): boolean {
+  const dateStr = m.end_date || m.start_date;
+  if (!dateStr) return false;
+  try {
+    const datePart = dateStr.includes("T") ? dateStr.split("T")[0] : dateStr;
+    const timePart = m.time && m.time.trim() ? m.time.trim() : "23:59:59";
+    const dt = new Date(`${datePart}T${timePart}`);
+    if (isNaN(dt.getTime())) {
+      const d = new Date(datePart);
+      d.setHours(23, 59, 59, 999);
+      return Date.now() > d.getTime();
+    }
+    return Date.now() > dt.getTime();
+  } catch {
+    return false;
+  }
+}
+
 export async function adaptHomeFeed(
   home: BackendHomePayload,
   downloadedSet?: Set<string>
@@ -192,9 +210,22 @@ export async function adaptHomeFeed(
 
   const adaptedCategories = (home.categories || []).map((c, i) => adaptCategory(c, i));
 
-  const recentSermons = await Promise.all(
+  let recentSermons = await Promise.all(
     (home.recently_added || []).map((s) => adaptSermon(s, favs, progs, downloadedSet))
   );
+
+  // Fallback: If language-filtered recently added is empty, fetch all published sermons so cards are pre-populated
+  if (recentSermons.length === 0) {
+    try {
+      const { api: clientApi } = await import("./client");
+      const fallbackList = await clientApi.search("");
+      if (fallbackList.length > 0) {
+        recentSermons = fallbackList.slice(0, 6);
+      }
+    } catch {
+      // Ignore
+    }
+  }
 
   const featuredSermons = await Promise.all(
     (home.featured_sermons || []).map((s) => adaptSermon(s, favs, progs, downloadedSet))
@@ -231,6 +262,6 @@ export async function adaptHomeFeed(
     featured,
     popular: featuredSermons,
     categories: adaptedCategories,
-    upcoming_meetings: home.upcoming_meetings || [],
+    upcoming_meetings: (home.upcoming_meetings || []).filter((m) => !isMeetingExpired(m)),
   };
 }

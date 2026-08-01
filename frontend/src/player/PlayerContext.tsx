@@ -64,16 +64,27 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: true }).catch(() => {});
   }, []);
 
+  const lastPosRef = useRef<number>(-1);
+  const playingRef = useRef<boolean>(false);
+
   // Poll status & track end detection
   useEffect(() => {
     if (!player) return;
     const iv = setInterval(() => {
       try {
         const cur = player.currentTime || 0;
-        setPosition(cur);
+        const curFloor = Math.floor(cur);
+        if (curFloor !== lastPosRef.current) {
+          lastPosRef.current = curFloor;
+          setPosition(curFloor);
+        }
         const dur = player.duration || duration;
         if (dur && dur !== duration) setDuration(dur);
-        setPlaying(player.playing);
+
+        if (player.playing !== playingRef.current) {
+          playingRef.current = player.playing;
+          setPlaying(player.playing);
+        }
 
         // Track completion detection
         if (dur > 0 && cur >= dur - 0.5) {
@@ -85,12 +96,13 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         // heartbeat every 15s
         if (current && player.playing && Date.now() - lastHeartbeatRef.current > 15000) {
           lastHeartbeatRef.current = Date.now();
-          api.reportProgress(current.id, Math.floor(cur), false).catch(() => {});
+          api.reportProgress(current.id, curFloor, false).catch(() => {});
         }
 
         // sleep timer
         if (sleepAt && Date.now() >= sleepAt) {
           player.pause();
+          playingRef.current = false;
           setPlaying(false);
           setSleepAt(null);
           settings.setSleepTimerMinutes(null);

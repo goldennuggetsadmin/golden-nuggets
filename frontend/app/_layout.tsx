@@ -1,7 +1,7 @@
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useRef, useState } from "react";
-import { LogBox, View } from "react-native";
+import { Animated, Image, LogBox, Platform, StyleSheet, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -18,6 +18,59 @@ import { WelcomeSheet } from "@/src/components/WelcomeSheet";
 LogBox.ignoreAllLogs(true);
 
 SplashScreen.preventAutoHideAsync();
+
+function AndroidLaunchPoster({ isReady, onFinished }: { isReady: boolean; onFinished: () => void }) {
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const startedRef = useRef(false);
+  const mountTimeRef = useRef(Date.now());
+
+  useEffect(() => {
+    const triggerFade = () => {
+      if (startedRef.current) return;
+      startedRef.current = true;
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 400,
+        useNativeDriver: true,
+      }).start(() => {
+        onFinished();
+      });
+    };
+
+    if (isReady && !startedRef.current) {
+      const elapsed = Date.now() - mountTimeRef.current;
+      const remainingMin = Math.max(0, 2500 - elapsed);
+      const timer = setTimeout(triggerFade, remainingMin);
+      return () => clearTimeout(timer);
+    }
+
+    // Emergency offline fallback timeout (12.0s)
+    const maxTimer = setTimeout(triggerFade, 12000);
+    return () => clearTimeout(maxTimer);
+  }, [isReady]);
+
+  return (
+    <Animated.View
+      style={[
+        StyleSheet.absoluteFillObject,
+        {
+          backgroundColor: "#0B0F0E",
+          zIndex: 99999,
+          opacity: fadeAnim,
+          alignItems: "center",
+          justifyContent: "center",
+        },
+      ]}
+      pointerEvents="none"
+    >
+      <Image
+        source={require("@/assets/images/splash-image.png")}
+        style={{ width: "100%", height: "100%" }}
+        resizeMode="contain"
+      />
+    </Animated.View>
+  );
+}
 
 /**
  * OnboardingGate — mounted inside SettingsProvider so it can read profile.
@@ -94,23 +147,50 @@ function AppTree() {
   );
 }
 
+
+
+import { api } from "@/src/api/client";
+
 export default function RootLayout() {
   const [iconsLoaded, iconsError] = useIconFonts();
   const [appFontsLoaded, appFontsError] = useAppFonts();
-
-  const ready = (iconsLoaded || iconsError) && (appFontsLoaded || appFontsError);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [showAndroidPoster, setShowAndroidPoster] = useState(Platform.OS === "android");
 
   useEffect(() => {
-    if (ready) {
-      SplashScreen.hideAsync();
+    let isMounted = true;
+    async function preloadAllData() {
+      try {
+        await api.home();
+      } catch {
+        // Silently ignore network errors so offline/cached mode still loads
+      } finally {
+        if (isMounted) setDataLoaded(true);
+      }
     }
-  }, [ready]);
+    preloadAllData();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
-  if (!ready) return null;
+  const fontsReady = (iconsLoaded || iconsError) && (appFontsLoaded || appFontsError);
+
+  useEffect(() => {
+    if (fontsReady) {
+      // Hide Image-1 (Native Android Splash) in <0.5s as soon as React tree mounts
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [fontsReady]);
+
+  if (!fontsReady) return null;
 
   return (
     <ThemeProvider>
       <AppTree />
+      {Platform.OS === "android" && showAndroidPoster && (
+        <AndroidLaunchPoster isReady={dataLoaded} onFinished={() => setShowAndroidPoster(false)} />
+      )}
     </ThemeProvider>
   );
 }

@@ -8,34 +8,24 @@ import { getShadows } from "@/src/theme/tokens";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import {
   useSettings,
-  APP_LANGUAGES,
-  getLanguageLabel,
   getDisplayName,
   getAvatarInitials,
 } from "@/src/settings/SettingsContext";
-import { useDownloads } from "@/src/downloads/DownloadsContext";
 import { useToast } from "@/src/toast/ToastContext";
 import { PickerSheet } from "@/src/components/PickerSheet";
 import { EditProfileSheet } from "@/src/components/EditProfileSheet";
 
 const TAB_BAR_INSET = 140;
 
-function bytesFmt(b: number) {
-  if (b > 1e9) return `${(b / 1e9).toFixed(2)} GB`;
-  if (b > 1e6) return `${(b / 1e6).toFixed(1)} MB`;
-  return `${(b / 1e3).toFixed(0)} KB`;
-}
-
 export default function MoreScreen() {
   const insets = useSafeAreaInsets();
   const s = useSettings();
-  const dl = useDownloads();
   const toast = useToast();
   const { colors, theme, setTheme: setThemeProvider } = useTheme();
   const styles = getStyles(colors, theme);
   const shadows = getShadows(colors);
 
-  const [openSheet, setOpenSheet] = useState<null | "rate" | "sleep" | "quality" | "tlang" | "font" | "alang">(null);
+  const [openSheet, setOpenSheet] = useState<null | "rate" | "sleep" | "quality">(null);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
 
   const displayName = getDisplayName(s.profile);
@@ -91,16 +81,6 @@ export default function MoreScreen() {
         <Row testID="settings-row-quality" icon="sparkles" label="Download quality" value={s.downloadQuality} onPress={() => setOpenSheet("quality")} />
       </Group>
 
-      <Group title="READING">
-        <Row testID="settings-row-tlang" icon="language" tone="gold" label="Transcript language" value={s.transcriptLanguage} onPress={() => setOpenSheet("tlang")} />
-        <Row testID="settings-row-font" icon="text" label="Font size" value={`${s.fontSize} pt`} onPress={() => setOpenSheet("font")} />
-        <Row testID="settings-row-alang" icon="globe" label="App language" value={getLanguageLabel(s.appLanguage)} onPress={() => setOpenSheet("alang")} />
-      </Group>
-
-      <Group title="DEVICE">
-        <Row testID="settings-row-storage" icon="server" label="Storage" value={bytesFmt(dl.totalBytes)} onPress={() => toast.show("Manage in Downloads tab", "info")} />
-      </Group>
-
       <Group title="ABOUT">
         <Row testID="settings-row-privacy" icon="shield" label="Privacy policy" onPress={() => toast.show("Privacy policy opens in browser (deploy first)", "info")} />
         <Row testID="settings-row-about" icon="information-circle" label="About Golden Nuggets" value="v1.0" onPress={() => toast.show("Golden Nuggets v1.0", "info")} />
@@ -144,36 +124,6 @@ export default function MoreScreen() {
           { value: "Medium", label: "Medium" },
           { value: "High", label: "High (best)" },
         ]}
-      />
-      <PickerSheet
-        testID="picker-tlang"
-        visible={openSheet === "tlang"}
-        onClose={() => setOpenSheet(null)}
-        title="Transcript language"
-        value={s.transcriptLanguage}
-        onChange={(v) => s.setTranscriptLanguage(v as "English" | "Telugu")}
-        options={[{ value: "English", label: "English" }, { value: "Telugu", label: "తెలుగు" }]}
-      />
-      <PickerSheet
-        testID="picker-font"
-        visible={openSheet === "font"}
-        onClose={() => setOpenSheet(null)}
-        title="Transcript font size"
-        value={s.fontSize}
-        onChange={(v) => s.setFontSize(v as number)}
-        options={[
-          { value: 14, label: "Small" }, { value: 17, label: "Medium" },
-          { value: 20, label: "Large" }, { value: 24, label: "Extra large" },
-        ]}
-      />
-      <PickerSheet
-        testID="picker-alang"
-        visible={openSheet === "alang"}
-        onClose={() => setOpenSheet(null)}
-        title="App language"
-        value={s.appLanguage}
-        onChange={(v) => s.setAppLanguage(v as typeof s.appLanguage)}
-        options={APP_LANGUAGES.map((l) => ({ value: l.code, label: l.label }))}
       />
 
       {/* Edit Profile sheet */}

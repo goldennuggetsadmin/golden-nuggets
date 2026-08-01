@@ -15,8 +15,11 @@ import {
   BackendHomePayload,
 } from "./adapters";
 
-const DEFAULT_BASE = "http://127.0.0.1:8000/api/v1/mobile";
-const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || DEFAULT_BASE;
+import { Platform } from "react-native";
+
+const PRODUCTION_BASE = "https://web-production-1fc9d.up.railway.app/api/v1/mobile";
+const LOCAL_BASE = Platform.OS === "android" ? "http://10.0.2.2:8000/api/v1/mobile" : "http://127.0.0.1:8000/api/v1/mobile";
+const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || PRODUCTION_BASE;
 
 // ------------------------------ types
 export interface TranscriptParagraph {
@@ -149,13 +152,21 @@ export const api = {
   base: BASE,
 
   getCachedHome: async (language?: string): Promise<HomeFeed | undefined> => {
-    return cacheStore.get<HomeFeed>(`home_${language || "default"}`);
+    const cached = await cacheStore.get<HomeFeed>(`home_${language || "default"}`);
+    if (cached) {
+      const { isMeetingExpired } = await import("./adapters");
+      return {
+        ...cached,
+        upcoming_meetings: (cached.upcoming_meetings || []).filter((m) => !isMeetingExpired(m)),
+      };
+    }
+    return undefined;
   },
 
   home: async (language?: string): Promise<HomeFeed> => {
     const cacheKey = `home_${language || "default"}`;
     const raw = await j<BackendHomePayload>(`/home${language ? `?language=${language}` : ""}`);
-    const adapted = adaptHomeFeed(raw);
+    const adapted = await adaptHomeFeed(raw);
     cacheStore.set(cacheKey, adapted);
     return adapted;
   },

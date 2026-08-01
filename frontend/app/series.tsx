@@ -27,8 +27,14 @@ export default function SeriesScreen() {
 
   useEffect(() => {
     setLoading(true);
-    const languageParam = appLanguage === "te" ? "Telugu" : "English";
-    api.listTestimonies({ category: seriesTitle, language: languageParam })
+    api.listTestimonies({ category: seriesTitle })
+      .then((data) => {
+        if (data.length === 0) {
+          // Fallback to series query if category returns empty
+          return api.listTestimonies({ series: seriesTitle });
+        }
+        return data;
+      })
       .then((data) => setSermons(data))
       .catch(() => {})
       .finally(() => setLoading(false));
