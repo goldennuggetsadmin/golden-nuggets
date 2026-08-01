@@ -1,31 +1,44 @@
 {
-  "summary": "Full backend + frontend testing of Sanctuary. Backend: 14/14 pytest pass covering health, categories (10), testimonies list/get/404, home feed (continue_listening progress 0<x<1, recently_added, featured, popular, categories), PATCH favorite (with GET verify), search all/speaker, PDF transcript upload English + Telugu, Telugu upsert semantics (single entry, new URL), invalid language 400, media serving with content-type, media 404, and global _id leak check across categories/testimonies/home. Frontend (mobile 390x844): Home renders Continue Listening card (Grace Upon Grace), Recently Added carousel (8 cards), Featured Series, Categories grid (6), Most Popular list (4). Tab navigation to Search/Library/Downloads/More all work. Search input filters live, filter chips capitalized like search-filter-Speaker (Speaker chip constrains results to Jenkins). Library favorites tab present. Downloads screen shows Storage card + 3 tab chips (Downloading/Downloaded/Paused). More/Settings shows Light/Dark theme toggles. Message card tap opens /player modal; player-play-pause, player-rate (cycles 1x->1.25x verified), player-rewind, player-forward, open-transcript all present and interactive. Transcript overlay opens with English/Telugu language toggle, A-/A+ font controls, and displays uploaded English PDF text 'Peace I leave with you...' - end-to-end PDF ingestion → mobile display confirmed. No deprecated Expo packages (uses expo-audio, not expo-av). No RN red-screen errors. Only benign RN-web warnings: shadow* and pointerEvents deprecation.",
-  "backend_issues": {"critical": [], "minor": []},
+  "summary": "First end-to-end pass for Golden Nuggets Admin CMS. Backend: 36/36 pytest cases pass (auth, sermons CRUD/publish/bulk/feature, meetings CRUD/publish, categories CRUD with 409 on duplicate slug and assign, media upload/list/usage/serve/delete via Emergent Object Storage, dashboard stats, settings GET/PATCH, import preview+publish). Frontend: login->dashboard redirect, all sidebar links navigate correctly, sermon create->edit redirect, meeting create, category create + duplicate-slug blocked, import center preview+publish, media upload appears in list, settings tab navigation and Save persist correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/import/preview", "issue": "branham.org returns 404 for the reference URL https://branham.org/en/messagesaudio/GoingBeyondTheCamp from this environment (Microsoft-IIS/legacy.branham.org backend). The FastAPI scraper itself is correct — verified with https://example.com/ returning 200 and populating title. Main agent may need to adjust the sample URL or scraper URL slug format."},
+      {"endpoint": "/api/import/preview", "issue": "When httpx raises_for_status (e.g. Wikipedia 403 or branham 404), the endpoint returns 502 with the underlying error string. This is by design; consider returning 422/400 for client-error upstream responses so the UI shows a cleaner message than 'Failed to fetch page: 404 Not Found'."}
+    ]
+  },
   "frontend_issues": {
     "ui_bugs": [],
     "integration_issues": [],
-    "design_issues": [],
-    "react_native_issues": [
-      {"component": "RN Web console warnings", "issue": "Non-blocking web-only warnings: 'shadow* style props are deprecated. Use boxShadow' and 'props.pointerEvents is deprecated. Use style.pointerEvents'. Sources: shadows.elevated/glow tokens (src/theme/tokens) and pointerEvents props on (tabs)/_layout.tsx View wrapper. Cosmetic on web preview only; safe to migrate later."}
+    "design_issues": [
+      {"screen": "Dashboard stat cards", "issues": ["Zero-value counts (total_sermons, total_meetings, featured, recently_added) render as '—' instead of '0'. Numeric intent is unclear until data exists. Not blocking."]}
     ]
   },
-  "test_report_links": ["/app/backend/tests/test_sanctuary_api.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
   "action_items": [
-    "(Optional/minor) Migrate 'shadow*' style props to boxShadow in src/theme/tokens shadows.elevated/shadows.glow to silence RN-web warning.",
-    "(Optional/minor) Move pointerEvents='box-none'/'auto' from props to style in app/(tabs)/_layout.tsx miniWrap wrapper."
+    "Consider updating the sample Branham.org URL in docs / import center placeholder to a working slug (e.g. verify current branham.org URL structure — legacy Microsoft-IIS host is returning 404 for /en/messagesaudio/*).",
+    "Optional: map upstream 4xx from httpx to HTTP 400 (bad URL) instead of 502 (bad gateway) in /api/import/preview.",
+    "Optional: render 0 instead of '—' on dashboard stat cards when the count is genuinely zero."
   ],
   "critical_code_review_comments": [
-    "Clean layered architecture: FastAPI controllers → services → repositories → Motor. MongoDB _id is projected out at repo layer (_PROJECT = {\"_id\": 0}) — no leaks confirmed.",
-    "PDF text extraction via pdfplumber inside services.attach_transcript; extraction wrapped in try/except so upload never fails on malformed PDFs (text becomes '').",
-    "Upsert semantics for transcripts implemented correctly via $pull then $push (single entry per language) — verified with Telugu re-upload changing pdf_url.",
-    "Frontend uses process.env.EXPO_PUBLIC_BACKEND_URL via api client; testIDs consistently applied on all interactive elements.",
-    "Player rate button label formatting uses .toFixed(rate === 1 ? 1 : 2).replace(/0$/, \"\") producing '1.×' when rate=1.0 (trailing dot). Cosmetic — consider `rate === 1 ? '1×' : \\`${rate}×\\``."
+    "auth.py sets cookies with secure=False. Since the app is served over HTTPS in preview/production, cookies should be secure=True to prevent MITM cookie exfiltration. Sensitive httpOnly refresh tokens are currently transmittable over any protocol.",
+    "auth.py brute-force lockout keys on 'ip:email'. If two clients from different IPs guess against same account, they don't share a counter — acceptable for now but note per-email counter is not enforced.",
+    "storage_service.py uses synchronous 'requests' inside async FastAPI endpoints (media upload/download). This blocks the event loop; consider httpx.AsyncClient or offloading to run_in_executor for high concurrency.",
+    "server.py CORS 'allow_origins' defaults to '*' with allow_credentials=True — browsers ignore this combo. Currently harmless because cookies flow same-origin via ingress, but explicit origin list is safer.",
+    "import_center.py year computation `str(1900 + year_prefix)` produces 1900+YY (e.g. 65 -> 1965), but the branch `if year_prefix < 70 else str(1900 + year_prefix)` is identical in both arms — likely intended `2000 + year_prefix` for years < 70. Cosmetic bug in derived year value.",
+    "Frontend AuthContext relies on /auth/me; ensure a 401 there transitions to /login (verified working via ProtectedRoute)."
   ],
-  "updated_files": ["/app/backend/tests/test_sanctuary_api.py"],
-  "success_rate": {"backend": "100% (14/14)", "frontend": "100% of tested flows"},
-  "seed_data_creation": "Generated /tmp/sample_en.pdf, /tmp/sample_te.pdf, /tmp/sample_te_v2.pdf via fpdf2 for transcript upload tests. Backend seed (10 testimonies) already present from prior `python -m seed_demo`.",
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@goldennuggets.com / Admin@123 (verified working, auto-seeded)",
+  "seed_data_creation": "Tests self-clean: TEST_ prefixed sermons/meetings/categories/media all deleted at end of respective test cases. One UI-created 'Test Sermon' (draft) and 'Test Meeting' (upcoming) plus 'UITest Cat' category remain in DB from playwright run — main agent may wipe if desired.",
   "retest_needed": false,
-  "should_main_agent_self_test": false,
-  "context_for_next_testing_agent": "Backend URL: https://sermon-stream-9.preview.emergentagent.com (API prefix /api). Pytest suite at /app/backend/tests/test_sanctuary_api.py — run with EXPO_PUBLIC_BACKEND_URL env var or defaults. Sample PDFs in /tmp/. Frontend testIDs are capitalized for search-filter-{All|Title|Speaker|Category|Year|Language|Transcript} and downloads-tab-{Downloading|Downloaded|Paused}; library-tab-{favorites|recent|downloads|notes|highlights|history} lowercase. Player rate label shows '1.×' at 1.0x due to a regex quirk — cosmetic only.",
-  "rca_of_issue": "N/A — no regressions found. Player rate cosmetic quirk RCA: `(1.0).toFixed(1)` returns '1.0', `.replace(/0$/, '')` strips the trailing 0 leaving '1.'. Fix: special-case rate===1."
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Regression suite is /app/backend/tests/backend_test.py (pytest, 36 tests, ~24s). Import preview test uses example.com fallback when Branham.org is unreachable. Frontend selectors used: login-form, login-email-input, login-password-input, login-submit-btn, dashboard-page, sermons-page, create-sermon-btn (present on empty state? use direct nav /sermons/new instead), sermon-form-page, sermon-title-input, sermon-speaker-input, save-draft-btn, meetings-page, add-meeting-btn, meeting-title-input, publish-meeting-btn, categories-page, add-category-btn, cat-name-input, cat-save-btn, import-center-page, import-url-input, import-run-btn, import-preview, import-publish-btn, media-page, media-upload-input (hidden input — use set_input_files), settings-page, settings-tab-<key>, setting-<key>, save-settings-btn.",
+  "rca_of_the_issue": "No blocker issues found. Import Center's dependency on Branham.org may intermittently 502/404 depending on that site's availability; mitigation is to accept any public URL as the scraper falls back gracefully."
 }

@@ -1,0 +1,63 @@
+===============================================================================
+GOLDEN NUGGETS RELEASE BUILD LOG — DEMO v1.0.0
+===============================================================================
+Timestamp: 2026-07-31T19:54:00+05:30
+Target Package: com.emergent.sermonstream.deysqo
+Target Platform: Android (Release APK)
+
+PHASE 0 & 0.5 — GIT BRANCHING & ROLLBACK PREPARATION
+-------------------------------------------------------------------------------
+[CMD] git init
+[CMD] git checkout -b release/demo-v1
+[CMD] git tag -a v1.0.0-demo-base -m "Baseline before demo release"
+[STATUS] Git branch release/demo-v1 created and tagged as v1.0.0-demo-base.
+
+PHASE 1 — ENVIRONMENT & BUILD TOOLCHAIN AUDIT
+-------------------------------------------------------------------------------
+[CHECK] JAVA_HOME: Temurin-21 (OpenJDK 21.0.7)
+[CHECK] ANDROID_HOME: /Users/selvi.none/Library/Android/sdk
+[CHECK] Gradle Version: 8.14.3
+[CHECK] Expo SDK: ~53.0.0
+[CHECK] React Native: 0.79.5
+[CHECK] local.properties created: sdk.dir=/Users/selvi.none/Library/Android/sdk
+
+PHASE 2 — BACKEND CLOUD DEPLOYMENT & TUNNELING
+-------------------------------------------------------------------------------
+[CMD] uvicorn server:app --host 0.0.0.0 --port 8000
+[STATUS] FastAPI server running on port 8000 with Supabase Storage integration.
+[CMD] ssh -o StrictHostKeyChecking=no -R 80:localhost:8000 nokey@localhost.run
+[STATUS] Live public HTTPS URL active: https://016e9339145303.lhr.life
+
+PHASE 3 — PRODUCTION SMOKE TEST GATE VERIFICATION
+-------------------------------------------------------------------------------
+[TEST 1] GET /api/v1/health → HTTP 200 OK (Status: healthy)
+[TEST 2] GET /api/v1/mobile/categories → HTTP 200 OK
+[TEST 3] GET /api/v1/mobile/sermons → HTTP 200 OK (Count: 19)
+[TEST 4] GET /api/v1/mobile/sermons/{id} → HTTP 200 OK
+[TEST 5] HEAD Audio Presigned URL → HTTP 200 OK
+[TEST 6] HEAD PDF Presigned URL → HTTP 200 OK
+[TEST 7] HEAD Artwork Presigned URL → HTTP 200 OK
+[TEST 8] OPTIONS CORS Request → HTTP 200 OK
+[STATUS] 100% Smoke Tests PASSED. Gate condition satisfied.
+
+PHASE 4 — ENVIRONMENT-BASED MOBILE CONFIGURATION
+-------------------------------------------------------------------------------
+[CONFIG] .env updated: EXPO_PUBLIC_BACKEND_URL=https://016e9339145303.lhr.life/api/v1/mobile
+[CONFIG] app.json updated: versionCode: 1, permissions verified.
+
+PHASE 5 — STANDALONE RELEASE APK ASSEMBLY
+-------------------------------------------------------------------------------
+[CMD] export ANDROID_HOME=/Users/selvi.none/Library/Android/sdk && cd android && ./gradlew assembleRelease
+[OUTPUT] 609 actionable tasks: 247 executed, 362 up-to-date
+[OUTPUT] BUILD SUCCESSFUL in 14m 2s
+[OUTPUT] Generated APK: android/app/build/outputs/apk/release/app-release.apk (99 MB)
+
+PHASE 6 & 7 — RELEASE PACKAGING
+-------------------------------------------------------------------------------
+[CMD] mkdir -p GoldenNuggets-Demo-v1.0.0
+[CMD] cp android/app/build/outputs/apk/release/app-release.apk GoldenNuggets-Demo-v1.0.0/GoldenNuggets-Demo-v1.0.0.apk
+[STATUS] Release package bundle created successfully.
+
+===============================================================================
+RELEASE BUILD COMPLETE: STABLE DEMO APK READY FOR CLIENT REVIEW
+===============================================================================
