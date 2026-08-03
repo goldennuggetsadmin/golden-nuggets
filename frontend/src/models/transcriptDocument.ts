@@ -93,55 +93,58 @@ export function buildTranscriptDocument(
   testimony_id: string,
   language: string,
   rawParagraphs: any[],
-  rawText?: string,
-  highlights: UserHighlight[] = []
+  rawText?: string
 ): TranscriptDocument {
-  const highlightMap = new Map<number, string>(); // paragraphNumber → highlight id
-  highlights.forEach((h) => {
-    if (h.paragraph_number !== undefined && h.paragraph_number !== null) {
-      highlightMap.set(h.paragraph_number, h.id);
-    }
-  });
-
   let parsedParas: Paragraph[] = [];
   if (rawParagraphs && rawParagraphs.length > 0) {
-    parsedParas = rawParagraphs.map((p, idx) => {
-      const pNum = p.paragraph_number; // null if unnumbered
-      // Strip any leading serial number embedded in the text so it only shows in the gutter
-      let cleanText = (p.text || "").replace(/^\d+[\.\s\-]+/, "").trim();
-      // Dynamically strip top-of-page title header artifacts from paragraph 1
-      if (idx === 0 || pNum === null || pNum === 1) {
-        cleanText = stripTitleHeaderFromParagraph1(cleanText);
-      }
-      const bType = detectBlockType(cleanText, pNum ?? undefined, idx);
-      return {
-        paragraph_number: pNum,
-        text: cleanText,
-        start_seconds: p.start_seconds,
-        end_seconds: p.end_seconds,
-        isHighlighted: pNum != null ? highlightMap.has(pNum) : false,
-        highlightId: pNum != null ? highlightMap.get(pNum) : undefined,
-        blockType: bType,
-      };
-    });
+    parsedParas = rawParagraphs
+      .map((p, idx) => {
+        const pNum = p.paragraph_number; // null if unnumbered
+        let cleanText = (p.text || "").replace(/^\d+[\.\s\-]+/, "").trim();
+        if (idx === 0 || pNum === null || pNum === 1) {
+          cleanText = stripTitleHeaderFromParagraph1(cleanText);
+        }
+        const bType = detectBlockType(cleanText, pNum ?? undefined, idx);
+        return {
+          paragraph_number: pNum,
+          text: cleanText,
+          start_seconds: p.start_seconds,
+          end_seconds: p.end_seconds,
+          blockType: bType,
+        };
+      })
+      .filter((p) => {
+        // ISSUE 1: Filter out duplicate PDF headings/titles/subtitles from transcript body
+        if (!p.text || !p.text.trim()) return false;
+        if (p.blockType === "heading" || p.blockType === "title" || p.blockType === "subtitle" || p.blockType === "location") {
+          return false;
+        }
+        return true;
+      });
   } else if (rawText) {
     const rawList = rawText.split(/\n{2,}|\r\n\r\n/).map((t: string) => t.trim()).filter(Boolean);
-    parsedParas = rawList.map((t: string, idx) => {
-      const match = t.match(/^(\d{1,4})[\.\s\-]/);
-      const pNum = match ? parseInt(match[1], 10) : undefined;
-      let cleanText = t.replace(/^\d+[\.\s\-]+/, "").trim();
-      if (idx === 0 || pNum === undefined || pNum === 1) {
-        cleanText = stripTitleHeaderFromParagraph1(cleanText);
-      }
-      const bType = detectBlockType(cleanText, pNum, idx);
-      return {
-        paragraph_number: pNum as any, // might be undefined, which matches the model
-        text: cleanText,
-        isHighlighted: pNum != null ? highlightMap.has(pNum) : false,
-        highlightId: pNum != null ? highlightMap.get(pNum) : undefined,
-        blockType: bType,
-      };
-    });
+    parsedParas = rawList
+      .map((t: string, idx) => {
+        const match = t.match(/^(\d{1,4})[\.\s\-]/);
+        const pNum = match ? parseInt(match[1], 10) : undefined;
+        let cleanText = t.replace(/^\d+[\.\s\-]+/, "").trim();
+        if (idx === 0 || pNum === undefined || pNum === 1) {
+          cleanText = stripTitleHeaderFromParagraph1(cleanText);
+        }
+        const bType = detectBlockType(cleanText, pNum, idx);
+        return {
+          paragraph_number: pNum as any,
+          text: cleanText,
+          blockType: bType,
+        };
+      })
+      .filter((p) => {
+        if (!p.text || !p.text.trim()) return false;
+        if (p.blockType === "heading" || p.blockType === "title" || p.blockType === "subtitle" || p.blockType === "location") {
+          return false;
+        }
+        return true;
+      });
   }
 
   return {

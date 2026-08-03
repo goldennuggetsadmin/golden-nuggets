@@ -1,6 +1,5 @@
 import React, { useEffect, useRef } from "react";
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import { Paragraph } from "../models/transcriptDocument";
 import { TranscriptParagraphText } from "./TranscriptParagraphText";
 import { radii, spacing, typography } from "../theme/tokens";
@@ -10,6 +9,7 @@ export interface ReadingParagraphRowProps {
   item: Paragraph;
   fontSize: number;
   isActive: boolean;
+  isHighlighted?: boolean;
   isAutoFollowing: boolean;
   isPlaying: boolean;
   isTargetGlow: boolean;
@@ -21,6 +21,7 @@ export const ReadingParagraphRow = React.memo(function ReadingParagraphRow({
   item,
   fontSize,
   isActive,
+  isHighlighted,
   isAutoFollowing,
   isPlaying,
   isTargetGlow,
@@ -33,6 +34,7 @@ export const ReadingParagraphRow = React.memo(function ReadingParagraphRow({
   // Animated opacity transition (150-250ms Ease-In-Out)
   const opacityAnim = useRef(new Animated.Value(1)).current;
 
+  // Active paragraph: opacity 1.0. Other paragraphs during playback: dimmed 0.38. When paused/stopped: opacity 1.0.
   const targetOpacity = isPlaying && isAutoFollowing ? (isActive ? 1 : 0.38) : 1;
 
   useEffect(() => {
@@ -55,22 +57,15 @@ export const ReadingParagraphRow = React.memo(function ReadingParagraphRow({
       })
     : "transparent";
 
-  const isHeader = item.blockType === "heading" || item.blockType === "title";
-  const isSubtitle = item.blockType === "subtitle" || item.blockType === "location";
+  // ISSUE 1: Do NOT render duplicate PDF page title/heading/subtitle blocks inside the transcript body
+  const isHeader =
+    item.blockType === "heading" ||
+    item.blockType === "title" ||
+    item.blockType === "subtitle" ||
+    item.blockType === "location";
 
-  if (isHeader || isSubtitle) {
-    return (
-      <Pressable onPress={() => onPress(item)} style={styles.headerBlockContainer}>
-        <Text
-          style={[
-            isHeader ? styles.sectionHeadingText : styles.subtitleText,
-            { fontSize: isHeader ? fontSize + 3 : fontSize - 1 },
-          ]}
-        >
-          {item.text}
-        </Text>
-      </Pressable>
-    );
+  if (isHeader) {
+    return null;
   }
 
   return (
@@ -80,25 +75,20 @@ export const ReadingParagraphRow = React.memo(function ReadingParagraphRow({
           style={[
             styles.rowContainer,
             { backgroundColor },
-            item.isHighlighted && styles.highlightedRow,
+            isHighlighted && styles.highlightedRow,
           ]}
         >
           {/* Highlight bar — always reserves space so text never shifts horizontally */}
-          <View style={item.isHighlighted ? styles.highlightBar : styles.highlightBarPlaceholder} />
+          <View style={isHighlighted ? styles.highlightBar : styles.highlightBarPlaceholder} />
 
-          {/* Verse / Paragraph Number Gutter */}
+          {/* Verse / Paragraph Number Gutter — 20-30% larger font size (16px) */}
           <View style={styles.numCol}>
             {item.paragraph_number != null ? (
               <Text style={styles.paraNum}>{item.paragraph_number}</Text>
             ) : null}
           </View>
 
-          {/* Active Reading Indicator */}
-          {isActive && isPlaying ? (
-            <View style={styles.activeIndicator}>
-              <Ionicons name="volume-medium" size={14} color={colors.emerald} />
-            </View>
-          ) : null}
+          {/* ISSUE 6: Inline speaker/play icon removed completely */}
 
           {/* Paragraph Text */}
           <View style={styles.textCol}>
@@ -106,9 +96,8 @@ export const ReadingParagraphRow = React.memo(function ReadingParagraphRow({
               text={item.text}
               fontSize={fontSize}
               style={[
-                isActive ? styles.activeTextEmphasis : undefined,
-                item.blockType === "scripture" ? styles.scriptureText : undefined,
-                item.blockType === "hymn" ? styles.hymnText : undefined,
+                // ISSUE 3/4/9: Classification affects layout only — no bolding or green text
+                item.blockType === "hymn" ? styles.hymnLayout : undefined,
               ]}
             />
           </View>
@@ -127,30 +116,7 @@ const getStyles = (colors: any, theme: string) =>
       paddingHorizontal: 0,
       borderRadius: radii.md,
     },
-    headerBlockContainer: {
-      paddingVertical: spacing[4],
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    sectionHeadingText: {
-      fontFamily: typography.sansBold,
-      color: colors.foreground,
-      textAlign: "center",
-      letterSpacing: 1.1,
-      textTransform: "uppercase",
-    },
-    subtitleText: {
-      fontFamily: typography.sansMedium,
-      color: colors.mutedForeground,
-      textAlign: "center",
-      marginTop: spacing[1],
-    },
-    scriptureText: {
-      fontStyle: "italic",
-      color: colors.emerald,
-    },
-    hymnText: {
-      fontFamily: typography.serif,
+    hymnLayout: {
       lineHeight: 28,
     },
     highlightedRow: {
@@ -169,27 +135,19 @@ const getStyles = (colors: any, theme: string) =>
       marginRight: spacing[2],
     },
     numCol: {
-      width: 34,
+      width: 40,
       alignItems: "flex-start",
       paddingRight: 6,
     },
+    // ISSUE 5: Paragraph numbers 20-30% larger (16px instead of 13px)
     paraNum: {
-      fontSize: 13,
+      fontSize: 16,
       fontFamily: typography.sansMedium,
       color: colors.mutedForeground,
-      opacity: 0.5,
-      lineHeight: 24,
-    },
-    activeIndicator: {
-      position: "absolute",
-      left: 2,
-      top: spacing[2] + 4,
+      opacity: 0.55,
+      lineHeight: 26,
     },
     textCol: {
       flex: 1,
     },
-    activeTextEmphasis: {
-      fontFamily: typography.sansSemi,
-    },
   });
-

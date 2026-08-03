@@ -223,10 +223,16 @@ export const userStore = {
     const all = await userStore.getHighlights();
     
     // Deduplicate by testimony_id + paragraph_number
-    const existing = all.find(
+    const existingIndex = all.findIndex(
       (h) => h.testimony_id === testimony_id && (h.paragraph_number === paragraph_number || h.paragraph_index === paragraph_number)
     );
-    if (existing) {
+
+    if (existingIndex !== -1) {
+      // Overwrite the existing quote with the latest text to prevent stale data
+      const existing = all[existingIndex];
+      existing.quote = quote;
+      if (start_seconds !== undefined) existing.start_seconds = start_seconds;
+      await storage.setItem(KEYS.HIGHLIGHTS, JSON.stringify(all));
       return existing;
     }
 

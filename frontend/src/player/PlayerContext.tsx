@@ -235,9 +235,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, [current]);
 
   const startSermonInternal = useCallback(async (m: Testimony) => {
+    router.push({ pathname: "/reading-mode", params: { id: m.id } });
     await play(m);
     api.track("sermon_opened", m.id).catch(() => {});
-    router.push({ pathname: "/reading-mode", params: { id: m.id } });
   }, [play]);
 
   const selectSermon = useCallback(async (m: Testimony) => {
@@ -261,14 +261,16 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     if (playing && current && current.id !== m.id) {
       Alert.alert(
         "Stop Current Sermon?",
-        "A sermon is already playing.",
+        "Close the current sermon and switch to the selected sermon?",
         [
           { text: "Cancel", style: "cancel" },
           {
-            text: "Play New Sermon",
+            text: "Continue",
             style: "destructive",
-            onPress: async () => {
-              await startSermonInternal(m);
+            onPress: () => {
+              setTimeout(async () => {
+                await startSermonInternal(m);
+              }, 100);
             },
           },
         ],

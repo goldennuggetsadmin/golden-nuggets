@@ -133,10 +133,18 @@ export default function ReadingModeScreen() {
       sermon.id,
       lang,
       activeTranscript.paragraphs || [],
-      activeTranscript.text,
-      highlights
+      activeTranscript.text
     );
-  }, [sermon, lang, activeTranscript, highlights]);
+  }, [sermon, lang, activeTranscript]);
+
+  const highlightedSet = useMemo(() => {
+    const s = new Set<number>();
+    highlights.forEach((h) => {
+      const pNum = h.paragraph_number ?? h.paragraph_index;
+      if (pNum !== undefined && pNum !== null) s.add(pNum);
+    });
+    return s;
+  }, [highlights]);
 
   const isCurrentSermon = p.current?.id === sermon?.id;
 
@@ -270,16 +278,15 @@ export default function ReadingModeScreen() {
   const handleToggleHighlight = async () => {
     if (!selectedParagraph || !sermon) return;
 
-    // Derive live state from doc so we always act on current truth,
-    // not the stale snapshot captured when the sheet was opened.
-    const livePara = doc?.paragraphs.find(
-      (p) => p.paragraph_number === selectedParagraph.paragraph_number
+    const pNum = selectedParagraph.paragraph_number;
+    const existingHl = highlights.find(h => 
+      (h.paragraph_number ?? h.paragraph_index) === pNum
     );
 
-    if (livePara?.isHighlighted && livePara.highlightId) {
+    if (existingHl) {
       // ── Remove ──
-      await api.deleteHighlight(livePara.highlightId);
-      setHighlights((prev) => prev.filter((h) => h.id !== livePara.highlightId));
+      await api.deleteHighlight(existingHl.id);
+      setHighlights((prev) => prev.filter((h) => h.id !== existingHl.id));
       toast.show("Highlight removed", "info");
       // Keep the sheet open so the user can see the UI change immediately
     } else {
@@ -361,12 +368,14 @@ export default function ReadingModeScreen() {
     ({ item }: { item: Paragraph }) => {
       const isActive = activeParagraphNumber === item.paragraph_number;
       const isTargetGlow = targetGlowParagraphNumber === item.paragraph_number;
+      const isHL = item.paragraph_number != null ? highlightedSet.has(item.paragraph_number) : false;
 
       return (
         <ReadingParagraphRow
           item={item}
           fontSize={fontSize}
           isActive={isActive}
+          isHighlighted={isHL}
           isAutoFollowing={autoFollow}
           isPlaying={p.playing && isCurrentSermon}
           isTargetGlow={isTargetGlow}
@@ -384,6 +393,7 @@ export default function ReadingModeScreen() {
       isCurrentSermon,
       p.playing,
       targetGlowParagraphNumber,
+      highlightedSet,
     ]
   );
 
@@ -507,6 +517,7 @@ export default function ReadingModeScreen() {
               isPlaying: p.playing,
               isCurrentSermon,
               fontSize,
+              highlightedSet,
             }}
             onScrollBeginDrag={handleManualScrollBegin}
             contentContainerStyle={{
@@ -591,12 +602,10 @@ export default function ReadingModeScreen() {
                 </Text>
               </Pressable>
 
-              {/* Highlight toggle — derives live state from doc, not stale selectedParagraph */}
+              {/* Highlight toggle */}
               {(() => {
-                const livePara = doc?.paragraphs.find(
-                  (p) => p.paragraph_number === selectedParagraph.paragraph_number
-                );
-                const isHL = livePara?.isHighlighted ?? selectedParagraph.isHighlighted;
+                const pNum = selectedParagraph.paragraph_number;
+                const isHL = pNum != null ? highlightedSet.has(pNum) : false;
                 return (
                   <Pressable
                     style={[styles.sheetBtn, {

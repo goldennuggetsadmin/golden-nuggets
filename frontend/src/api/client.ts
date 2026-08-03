@@ -258,9 +258,17 @@ export const api = {
   listHistory: async (): Promise<HistoryRow[]> => {
     const items = await userStore.getHistory();
     const result: HistoryRow[] = [];
+    
+    // Fast path: pull from local cache
+    const cachedAll = await api.getCachedTestimonies('{"limit":"200"}') || [];
+    const cacheMap = new Map(cachedAll.map(t => [t.id, t]));
+
     for (const item of items) {
       try {
-        const testimony = await api.getTestimony(item.testimony_id);
+        let testimony = cacheMap.get(item.testimony_id);
+        if (!testimony) {
+          testimony = await api.getTestimony(item.testimony_id);
+        }
         result.push({
           id: item.id,
           testimony,

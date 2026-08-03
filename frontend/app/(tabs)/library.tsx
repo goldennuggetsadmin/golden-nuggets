@@ -45,20 +45,21 @@ export default function LibraryScreen() {
   const p = usePlayer();
   const { appLanguage, fontSize } = useSettings();
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (isRefresh = false) => {
     try {
-      const [t, h, hl, cols] = await Promise.all([
-        api.listTestimonies({ limit: 200 }),
-        api.listHistory().catch(() => [] as HistoryRow[]),
+      if (isRefresh) setRefreshing(true);
+      
+      // 1. Instantly load ultra-fast local data (Zero network calls)
+      const [hl, cols, cachedT] = await Promise.all([
         api.listHighlights().catch(() => [] as Highlight[]),
         api.listCollections().catch(() => [] as NoteCollection[]),
+        api.getCachedTestimonies(JSON.stringify({ limit: 200 })).catch(() => null),
       ]);
-      setTestimonies(t);
-      setHistory(h);
+      
       setHighlights(hl);
       setCollections(cols);
 
-      // Fetch note counts for each collection
+      // Fetch note counts (also local, very fast)
       const counts: Record<string, number> = {};
       await Promise.all(
         cols.map(async (col) => {
@@ -67,7 +68,25 @@ export default function LibraryScreen() {
         })
       );
       setCollectionNoteCounts(counts);
+
+      if (cachedT && cachedT.length > 0) {
+        setTestimonies(cachedT);
+      }
+
+      // STOP LOADING IMMEDIATELY! The UI is ready to render Highlights and Notes.
+      setLoading(false);
+
+      // 2. Fetch potentially slow data concurrently in the background
+      api.listHistory()
+        .then(h => setHistory(h))
+        .catch(() => setHistory([]));
+
+      api.listTestimonies({ limit: 200 })
+        .then(freshT => setTestimonies(freshT))
+        .catch(() => {});
+
     } finally {
+      // Just in case of errors
       setLoading(false);
       setRefreshing(false);
     }

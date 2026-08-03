@@ -14,7 +14,7 @@ export const defaultTimingProvider: ParagraphTimingProvider = {
     paragraphs: Paragraph[],
     durationSeconds?: number
   ): number | null {
-    if (!paragraphs || paragraphs.length === 0 || positionSeconds < 0) return null;
+    if (!paragraphs || paragraphs.length === 0 || positionSeconds <= 0) return null;
 
     // 1. Precise check via start_seconds and end_seconds if available
     for (let i = 0; i < paragraphs.length; i++) {
