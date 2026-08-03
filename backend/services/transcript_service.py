@@ -152,7 +152,7 @@ def extract_transcript_from_pdf_bytes(pdf_bytes: bytes, overrides: Dict[str, Any
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             page_count = len(pdf.pages)
             for page_no, page in enumerate(pdf.pages, 1):
-                raw_text = page.extract_text(x_tolerance=2)
+                raw_text = page.extract_text(x_tolerance=1.5)
                 if not raw_text:
                     continue
 
