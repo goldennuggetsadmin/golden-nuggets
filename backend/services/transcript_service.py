@@ -125,6 +125,16 @@ def _is_header_footer(line: str) -> bool:
     return False
 
 
+def _clean_paragraph1_generic(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = text.strip()
+    cleaned = re.sub(r"^(?:THE\s+SPOKEN\s+WORD|WILLIAM\s+MARRION\s+BRANHAM|E-?\d+)\s*", "", cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r"^(?:[A-Z]\s+)+[A-Z\s]{2,40}\s*(?=[A-Z][a-z])", "", cleaned).strip()
+    cleaned = re.sub(r"^[A-Z][A-Z\s]{2,40}\b(?=[A-Z][a-z]{2,}|\b[A-Z][a-z]+,)", "", cleaned).strip()
+    return cleaned
+
+
 def extract_transcript_from_pdf_bytes(pdf_bytes: bytes, overrides: Dict[str, Any] = None) -> Dict[str, Any]:
     """Extract paragraphs and metadata from PDF bytes using the benchmark-winning Publisher-Aware Structural Extractor.
     Preserves 100% exact text stream and decodes publisher PDF font CMap CID glyphs.
@@ -160,6 +170,8 @@ def extract_transcript_from_pdf_bytes(pdf_bytes: bytes, overrides: Dict[str, Any
                     if para_text:
                         match = re.match(r"^(\d{1,4})[\.\s\-]", para_text)
                         p_num = int(match.group(1)) if match else None
+                        if len(paragraphs) == 0:
+                            para_text = _clean_paragraph1_generic(para_text)
                         paragraphs.append({
                             "page": page_no,
                             "paragraph_number": p_num,

@@ -70,6 +70,23 @@ export function detectBlockType(text: string, pNum?: number, index?: number): Bl
   return "paragraph";
 }
 
+export function stripTitleHeaderFromParagraph1(text: string): string {
+  if (!text) return "";
+  let cleaned = text.trim();
+
+  // 1. Strip common PDF document header prefixes if present
+  cleaned = cleaned.replace(/^(?:THE\s+SPOKEN\s+WORD|WILLIAM\s+MARRION\s+BRANHAM|E-?\d+)\s*/i, "").trim();
+
+  // 2. Strip scattered PDF title font artifacts (e.g. "T A O G HE NGEL F OD", "F I T S AITH S HE UBSTANCE", "E XPERIENCES")
+  // Pattern A: Scattered single/spaced capital letters before standard sentence start (e.g. "T A O G HE NGEL F OD Canada, and...")
+  cleaned = cleaned.replace(/^(?:[A-Z]\s+)+[A-Z\s]{2,40}\s*(?=[A-Z][a-z])/g, "").trim();
+
+  // Pattern B: Header title fragments in uppercase before standard sentence start (e.g. "E XPERIENCES Good evening, audience...")
+  cleaned = cleaned.replace(/^[A-Z][A-Z\s]{2,40}\b(?=[A-Z][a-z]{2,}|\b[A-Z][a-z]+,)/g, "").trim();
+
+  return cleaned;
+}
+
 export function buildTranscriptDocument(
   testimony_id: string,
   language: string,
@@ -90,9 +107,9 @@ export function buildTranscriptDocument(
       const pNum = p.paragraph_number; // null if unnumbered
       // Strip any leading serial number embedded in the text so it only shows in the gutter
       let cleanText = (p.text || "").replace(/^\d+[\.\s\-]+/, "").trim();
-      // If first paragraph contains PDF title header artifacts at start, strip header text
+      // Dynamically strip top-of-page title header artifacts from paragraph 1
       if (idx === 0 || pNum === null || pNum === 1) {
-        cleanText = cleanText.replace(/^(?:F\s*I\s*T\s*S\s*AITH\s*S\s*HE\s*UBSTANCE|FAITH\s+IS\s+THE\s+SUBSTANCE|THE\s+SPOKEN\s+WORD)\s*/i, "").trim();
+        cleanText = stripTitleHeaderFromParagraph1(cleanText);
       }
       const bType = detectBlockType(cleanText, pNum ?? undefined, idx);
       return {
@@ -112,7 +129,7 @@ export function buildTranscriptDocument(
       const pNum = match ? parseInt(match[1], 10) : undefined;
       let cleanText = t.replace(/^\d+[\.\s\-]+/, "").trim();
       if (idx === 0 || pNum === undefined || pNum === 1) {
-        cleanText = cleanText.replace(/^(?:F\s*I\s*T\s*S\s*AITH\s*S\s*HE\s*UBSTANCE|FAITH\s+IS\s+THE\s+SUBSTANCE|THE\s+SPOKEN\s+WORD)\s*/i, "").trim();
+        cleanText = stripTitleHeaderFromParagraph1(cleanText);
       }
       const bType = detectBlockType(cleanText, pNum, idx);
       return {
