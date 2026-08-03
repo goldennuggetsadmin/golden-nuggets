@@ -77,12 +77,14 @@ export function stripTitleHeaderFromParagraph1(text: string): string {
   // 1. Strip common PDF document header prefixes if present
   cleaned = cleaned.replace(/^(?:THE\s+SPOKEN\s+WORD|WILLIAM\s+MARRION\s+BRANHAM|E-?\d+)\s*/i, "").trim();
 
-  // 2. Strip scattered PDF title font artifacts (e.g. "T A O G HE NGEL F OD", "F I T S AITH S HE UBSTANCE", "E XPERIENCES")
-  // Pattern A: Scattered single/spaced capital letters before standard sentence start (e.g. "T A O G HE NGEL F OD Canada, and...")
-  cleaned = cleaned.replace(/^(?:[A-Z]\s+)+[A-Z\s]{2,40}\s*(?=[A-Z][a-z])/g, "").trim();
-
-  // Pattern B: Header title fragments in uppercase before standard sentence start (e.g. "E XPERIENCES Good evening, audience...")
-  cleaned = cleaned.replace(/^[A-Z][A-Z\s]{2,40}\b(?=[A-Z][a-z]{2,}|\b[A-Z][a-z]+,)/g, "").trim();
+  // 2. Dynamically strip sparse / uppercase PDF title font artifacts before standard prose sentence start
+  const match = cleaned.match(/\b(?:I\b|I[’\'][a-z]+|[A-Z][a-z]{1,}|[a-z]{3,})(?:[’\'][a-z]+)?,?\s+/);
+  if (match && match.index !== undefined && match.index > 0) {
+    const prefix = cleaned.substring(0, match.index).trim();
+    if (/^[A-Z0-9\s\.\,\?\!\:\;\-\–\—\(\)\[\]\…]+$/.test(prefix)) {
+      cleaned = cleaned.substring(match.index).trim();
+    }
+  }
 
   return cleaned;
 }

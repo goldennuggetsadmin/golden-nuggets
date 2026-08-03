@@ -130,8 +130,13 @@ def _clean_paragraph1_generic(text: str) -> str:
         return ""
     cleaned = text.strip()
     cleaned = re.sub(r"^(?:THE\s+SPOKEN\s+WORD|WILLIAM\s+MARRION\s+BRANHAM|E-?\d+)\s*", "", cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r"^(?:[A-Z]\s+)+[A-Z\s]{2,40}\s*(?=[A-Z][a-z])", "", cleaned).strip()
-    cleaned = re.sub(r"^[A-Z][A-Z\s]{2,40}\b(?=[A-Z][a-z]{2,}|\b[A-Z][a-z]+,)", "", cleaned).strip()
+
+    match = re.search(r"\b(?:I\b|I[’\'][a-z]+|[A-Z][a-z]{1,}|[a-z]{3,})(?:[’\'][a-z]+)?,?\s+", cleaned)
+    if match and match.start() > 0:
+        prefix = cleaned[:match.start()].strip()
+        if re.match(r"^[A-Z0-9\s\.\,\?\!\:\;\-\–\—\(\)\[\]\…]+$", prefix):
+            cleaned = cleaned[match.start():].strip()
+
     return cleaned
 
 

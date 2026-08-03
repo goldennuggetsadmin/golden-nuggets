@@ -21,13 +21,13 @@ export const defaultTimingProvider: ParagraphTimingProvider = {
       const p = paragraphs[i];
       if (p.start_seconds !== undefined && p.end_seconds !== undefined) {
         if (positionSeconds >= p.start_seconds && positionSeconds < p.end_seconds) {
-          return p.paragraph_number;
+          return p.paragraph_number ?? null;
         }
       } else if (p.start_seconds !== undefined) {
         const nextP = paragraphs[i + 1];
         const nextStart = nextP?.start_seconds ?? p.start_seconds + 30;
         if (positionSeconds >= p.start_seconds && positionSeconds < nextStart) {
-          return p.paragraph_number;
+          return p.paragraph_number ?? null;
         }
       }
     }
