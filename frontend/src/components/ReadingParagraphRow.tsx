@@ -55,8 +55,26 @@ export const ReadingParagraphRow = React.memo(function ReadingParagraphRow({
       })
     : "transparent";
 
+  const isHeader = item.blockType === "heading" || item.blockType === "title";
+  const isSubtitle = item.blockType === "subtitle" || item.blockType === "location";
+
+  if (isHeader || isSubtitle) {
+    return (
+      <Pressable onPress={() => onPress(item)} style={styles.headerBlockContainer}>
+        <Text
+          style={[
+            isHeader ? styles.sectionHeadingText : styles.subtitleText,
+            { fontSize: isHeader ? fontSize + 3 : fontSize - 1 },
+          ]}
+        >
+          {item.text}
+        </Text>
+      </Pressable>
+    );
+  }
+
   return (
-    <Pressable onPress={() => onPress(item)} style={{ marginVertical: spacing[2] }}>
+    <Pressable onPress={() => onPress(item)} style={{ marginVertical: spacing[3] }}>
       <Animated.View style={{ opacity: opacityAnim }}>
         <Animated.View
           style={[
@@ -65,29 +83,35 @@ export const ReadingParagraphRow = React.memo(function ReadingParagraphRow({
             item.isHighlighted && styles.highlightedRow,
           ]}
         >
-        {/* Highlight bar — always reserves space so text never shifts horizontally */}
-        <View style={item.isHighlighted ? styles.highlightBar : styles.highlightBarPlaceholder} />
+          {/* Highlight bar — always reserves space so text never shifts horizontally */}
+          <View style={item.isHighlighted ? styles.highlightBar : styles.highlightBarPlaceholder} />
 
-        {/* Paragraph Number */}
-        <View style={styles.numCol}>
-          <Text style={styles.paraNum}>{item.paragraph_number}</Text>
-        </View>
-
-        {/* Active Reading Indicator */}
-        {isActive && isPlaying ? (
-          <View style={styles.activeIndicator}>
-            <Ionicons name="volume-medium" size={14} color={colors.emerald} />
+          {/* Verse / Paragraph Number Gutter */}
+          <View style={styles.numCol}>
+            {item.paragraph_number != null ? (
+              <Text style={styles.paraNum}>{item.paragraph_number}</Text>
+            ) : null}
           </View>
-        ) : null}
 
-        {/* Paragraph Text */}
-        <View style={styles.textCol}>
-          <TranscriptParagraphText
-            text={item.text}
-            fontSize={fontSize}
-            style={isActive ? styles.activeTextEmphasis : undefined}
-          />
-        </View>
+          {/* Active Reading Indicator */}
+          {isActive && isPlaying ? (
+            <View style={styles.activeIndicator}>
+              <Ionicons name="volume-medium" size={14} color={colors.emerald} />
+            </View>
+          ) : null}
+
+          {/* Paragraph Text */}
+          <View style={styles.textCol}>
+            <TranscriptParagraphText
+              text={item.text}
+              fontSize={fontSize}
+              style={[
+                isActive ? styles.activeTextEmphasis : undefined,
+                item.blockType === "scripture" ? styles.scriptureText : undefined,
+                item.blockType === "hymn" ? styles.hymnText : undefined,
+              ]}
+            />
+          </View>
         </Animated.View>
       </Animated.View>
     </Pressable>
@@ -100,14 +124,38 @@ const getStyles = (colors: any, theme: string) =>
       flexDirection: "row",
       alignItems: "flex-start",
       paddingVertical: spacing[2],
-      paddingLeft: 0,
-      paddingRight: spacing[4],
+      paddingHorizontal: 0,
       borderRadius: radii.md,
+    },
+    headerBlockContainer: {
+      paddingVertical: spacing[4],
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    sectionHeadingText: {
+      fontFamily: typography.sansBold,
+      color: colors.foreground,
+      textAlign: "center",
+      letterSpacing: 1.1,
+      textTransform: "uppercase",
+    },
+    subtitleText: {
+      fontFamily: typography.sansMedium,
+      color: colors.mutedForeground,
+      textAlign: "center",
+      marginTop: spacing[1],
+    },
+    scriptureText: {
+      fontStyle: "italic",
+      color: colors.emerald,
+    },
+    hymnText: {
+      fontFamily: typography.serif,
+      lineHeight: 28,
     },
     highlightedRow: {
       backgroundColor: theme === "dark" ? "rgba(16, 185, 129, 0.05)" : "rgba(45, 138, 94, 0.05)",
     },
-    // Always 3px wide — transparent when not highlighted, coloured when highlighted
     highlightBar: {
       width: 3,
       height: "100%",
@@ -119,26 +167,22 @@ const getStyles = (colors: any, theme: string) =>
     highlightBarPlaceholder: {
       width: 3,
       marginRight: spacing[2],
-      // Transparent — only reserves space so text never shifts
     },
     numCol: {
-      // Reference gutter: number visible, compact, enough for 3 digits
-      width: 40,
-      alignItems: "flex-end",
-      paddingRight: 8,
+      width: 34,
+      alignItems: "flex-start",
+      paddingRight: 6,
     },
     paraNum: {
-      // Same size as paragraph text, muted gray, top-aligned with first line
-      // Stays muted even when paragraph is active
-      fontSize: 16,
-      fontFamily: typography.sans,
+      fontSize: 13,
+      fontFamily: typography.sansMedium,
       color: colors.mutedForeground,
       opacity: 0.5,
-      lineHeight: 22,
+      lineHeight: 24,
     },
     activeIndicator: {
       position: "absolute",
-      left: 6,
+      left: 2,
       top: spacing[2] + 4,
     },
     textCol: {

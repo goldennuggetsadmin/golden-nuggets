@@ -260,8 +260,10 @@ export default function ReadingModeScreen() {
       }
     }
 
-    triggerGlow(selectedParagraph.paragraph_number);
-    toast.show("Playing from paragraph " + selectedParagraph.paragraph_number, "info");
+    if (selectedParagraph.paragraph_number != null) {
+      triggerGlow(selectedParagraph.paragraph_number);
+    }
+    toast.show("Playing from paragraph " + (selectedParagraph.paragraph_number ?? 1), "info");
   };
 
   // Action: Toggle Highlight (add if not highlighted, remove if highlighted)
@@ -286,7 +288,7 @@ export default function ReadingModeScreen() {
         sermon.id,
         selectedParagraph.text,
         lang,
-        selectedParagraph.paragraph_number,
+        selectedParagraph.paragraph_number ?? 0,
         selectedParagraph.start_seconds
       );
       setHighlights((prev) => [hl, ...prev]);
@@ -320,7 +322,7 @@ export default function ReadingModeScreen() {
       speaker: sermon.speaker,
       date_code: sermon.year ? String(sermon.year) : undefined,
       language: lang,
-      paragraph_number: selectedParagraph.paragraph_number,
+      paragraph_number: selectedParagraph.paragraph_number ?? 0,
       text: selectedParagraph.text,
       timestamp: selectedParagraph.start_seconds,
     });
@@ -397,6 +399,28 @@ export default function ReadingModeScreen() {
     }).start();
   }, [showReturnToLive, returnToLiveAnim]);
 
+  const renderListHeader = useCallback(() => {
+    if (!sermon) return null;
+    const rawTitle = sermon.title || "";
+    const displayTitle = rawTitle.replace(/^\d{2}-\d{4}[A-Z\d]*\s*/i, "").trim() || rawTitle;
+    const sermonCode = sermon.verse || (rawTitle.match(/^\d{2}-\d{4}[A-Z\d]*/i)?.[0] || "");
+    const location = sermon.category && sermon.category !== "General" ? sermon.category : "OAKLAND CALIFORNIA U.S.A.";
+
+    return (
+      <View style={styles.titleHeaderContainer}>
+        <Text style={[styles.titleHeaderTitle, { fontSize: Math.round(fontSize * 1.45) }]}>
+          {displayTitle}
+        </Text>
+        {sermonCode ? (
+          <Text style={[styles.titleHeaderCode, { fontSize: Math.round(fontSize * 1.05) }]}>
+            {sermonCode}
+          </Text>
+        ) : null}
+        <Text style={styles.titleHeaderLocation}>{location.toUpperCase()}</Text>
+      </View>
+    );
+  }, [sermon, fontSize, styles]);
+
   if (loading || !sermon) {
     return (
       <View style={[styles.container, { paddingTop: insets.top + spacing[4], paddingHorizontal: spacing[5] }]}>
@@ -433,7 +457,7 @@ export default function ReadingModeScreen() {
 
         <View style={styles.titleWrap}>
           <Text style={styles.headerTitle} numberOfLines={1}>
-            {sermon.title}
+            {sermon ? (sermon.verse ? `${sermon.verse} ${sermon.title.replace(/^\d{2}-\d{4}[A-Z\d]*\s*/i, "")}` : sermon.title) : ""}
           </Text>
         </View>
 
@@ -474,6 +498,7 @@ export default function ReadingModeScreen() {
             data={doc.paragraphs}
             keyExtractor={(item, index) => `${sermon.id}_${item.paragraph_number ?? `idx_${index}`}`}
             renderItem={renderRow}
+            ListHeaderComponent={renderListHeader}
             onLoad={handleFlashListLoad}
             extraData={{
               activeParagraphNumber,
@@ -485,7 +510,7 @@ export default function ReadingModeScreen() {
             }}
             onScrollBeginDrag={handleManualScrollBegin}
             contentContainerStyle={{
-              paddingHorizontal: spacing[3],
+              paddingHorizontal: 24,
               paddingBottom: bottomPadding,
             }}
           />
@@ -772,6 +797,46 @@ const getStyles = (colors: any, theme: string) =>
       fontSize: 12,
       fontFamily: typography.sansSemi,
       color: colors.mutedForeground,
+    },
+    titleHeaderContainer: {
+      paddingTop: spacing[8],
+      paddingBottom: spacing[6],
+      alignItems: "center",
+      justifyContent: "center",
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
+      marginBottom: spacing[4],
+    },
+    titleHeaderTitle: {
+      fontFamily: typography.serif,
+      fontStyle: "italic",
+      color: theme === "dark" ? "rgba(245,245,240,0.95)" : "rgba(11,15,14,0.95)",
+      textAlign: "center",
+      marginBottom: spacing[2],
+    },
+    titleHeaderCode: {
+      fontFamily: typography.serif,
+      color: colors.mutedForeground,
+      textAlign: "center",
+      marginBottom: spacing[3],
+    },
+    titleHeaderLocation: {
+      fontFamily: typography.sansMedium,
+      fontSize: 12,
+      letterSpacing: 2,
+      color: colors.mutedForeground,
+      textAlign: "center",
+      textTransform: "uppercase",
+      opacity: 0.7,
+    },
+    headerBar: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: spacing[4],
+      height: 52,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.hairline,
     },
     emptyText: {
       color: colors.mutedForeground,

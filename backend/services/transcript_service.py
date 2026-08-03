@@ -142,7 +142,7 @@ def extract_transcript_from_pdf_bytes(pdf_bytes: bytes, overrides: Dict[str, Any
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             page_count = len(pdf.pages)
             for page_no, page in enumerate(pdf.pages, 1):
-                raw_text = page.extract_text()
+                raw_text = page.extract_text(x_tolerance=2)
                 if not raw_text:
                     continue
 
@@ -472,7 +472,7 @@ async def process_sermon_transcripts(sermon_id: str) -> dict:
         "transcript_paragraph_count": len(all_paragraphs),
         "transcript_parsed": verification_res.get("verified", True),
         "transcript_parser_version": "5.0-unified-cid-decoded",
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc),
     }
 
     await sermons_repo().update_one({"id": sermon_id}, update)

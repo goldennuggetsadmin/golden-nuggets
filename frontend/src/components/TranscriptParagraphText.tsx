@@ -20,7 +20,8 @@ export function TranscriptParagraphText({ text, fontSize = 16, style, ...props }
           color: textColor,
           fontFamily: typography.sans,
           fontSize,
-          lineHeight: fontSize * 1.7,
+          lineHeight: Math.round(fontSize * 1.62),
+          letterSpacing: 0.2,
         },
         style,
       ]}
