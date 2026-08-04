@@ -26,22 +26,10 @@ function SearchableSeriesSelect({ value, onChange }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
 
-  const { data: sermonsData } = useQuery({
-    queryKey: ["sermons-series-lookup"],
-    queryFn: async () => (await api.get(`/admin/sermons?page_size=9999`)).data,
-  });
-
-  const availableSeries = useMemo(() => {
-    const set = new Set(getManagedSeriesList());
-    (sermonsData?.items || []).forEach((s) => {
-      if (s.series && s.series.trim()) set.add(s.series.trim());
-    });
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [sermonsData]);
+  // Only the 14 predefined series are allowed — no dynamic lookup from DB sermons.
+  const availableSeries = getManagedSeriesList();
 
   const filtered = availableSeries.filter((s) => s.toLowerCase().includes(search.toLowerCase()));
-  const trimmedSearch = search.trim();
-  const canCreate = trimmedSearch && !availableSeries.find((s) => s.toLowerCase() === trimmedSearch.toLowerCase());
 
   return (
     <div className="relative">
@@ -50,7 +38,7 @@ function SearchableSeriesSelect({ value, onChange }) {
         className="h-11 w-full flex items-center justify-between rounded-lg border hairline bg-background/40 px-3.5 text-sm text-foreground cursor-pointer"
       >
         <span className={value ? "text-foreground font-medium" : "text-muted-foreground"}>
-          {value || "Select or search series…"}
+          {value || "Select series…"}
         </span>
         {value && (
           <X
@@ -70,7 +58,7 @@ function SearchableSeriesSelect({ value, onChange }) {
               autoFocus
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search or create series…"
+              placeholder="Search series…"
               className="h-9 w-full rounded-lg border hairline bg-background/60 px-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
             />
           </div>
@@ -92,29 +80,9 @@ function SearchableSeriesSelect({ value, onChange }) {
                 </div>
               ))
             ) : (
-              !canCreate && (
-                <div className="px-3 py-4 text-xs text-muted-foreground text-center">
-                  No series available
-                </div>
-              )
-            )}
-
-            {canCreate && (
-              <>
-                {filtered.length > 0 && <div className="my-1 border-t hairline" />}
-                <div
-                  onClick={() => {
-                    saveManagedSeriesName(trimmedSearch);
-                    onChange(trimmedSearch);
-                    setOpen(false);
-                    setSearch("");
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs cursor-pointer bg-primary/8 text-primary font-medium hover:bg-primary/15 transition"
-                >
-                  <span className="text-base leading-none">+</span>
-                  Create &ldquo;{trimmedSearch}&rdquo;
-                </div>
-              </>
+              <div className="px-3 py-4 text-xs text-muted-foreground text-center">
+                No series found
+              </div>
             )}
           </div>
         </div>
@@ -666,6 +634,14 @@ function UploadCard({ icon: Icon, title, hint, kind, accept, currentPath, curren
 
   const handleFile = async (file) => {
     if (!file) return;
+    if (kind === "pdf" && file.size > 100 * 1024 * 1024) {
+      toast.error("PDF file size exceeds maximum limit of 100 MB");
+      return;
+    }
+    if (hasFile && kind === "pdf") {
+      const confirmReplace = window.confirm("Replacing this PDF will archive the current version and re-extract transcript paragraphs. Continue?");
+      if (!confirmReplace) return;
+    }
     setBusy(true);
     setProgress(0);
     const fd = new FormData();

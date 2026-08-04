@@ -23,6 +23,29 @@ import { api } from "@/lib/api";
 
 const MANAGED_SERIES_KEY = "gn_managed_series_list";
 
+/** The ONLY valid series that may exist in Golden Nuggets.
+ *  These are the 14 predefined ministry series. No others are allowed.
+ */
+export const PREDEFINED_SERIES = [
+  "General",
+  "My Life Story",
+  "How the Angel Came to Me",
+  "The Revelation of the Seven Seals",
+  "The Revelation of Jesus Christ",
+  "Conduct, Order, and Doctrine of the Church",
+  "The Book of Hebrews",
+  "The Holy Ghost",
+  "Adoption",
+  "The Seventy Weeks of Daniel",
+  "The Church",
+  "Demonology",
+  "Israel and the Church",
+  "The Church Age Book (audio)",
+];
+
+/** Sermon-code pattern: e.g. 47-0412, 50-0820A — NEVER a valid series name */
+const SERMON_CODE_PATTERN = /^\d{2}-\d{4}[A-Za-z]?$/;
+
 /** Convert any string to Title Case */
 function toTitleCase(str) {
   if (!str) return str;
@@ -46,46 +69,30 @@ export function canonicalKey(str) {
 }
 
 export function getManagedSeriesList() {
-  try {
-    const raw = localStorage.getItem(MANAGED_SERIES_KEY);
-    const list = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(list)) return [];
-    // Sanitize & deduplicate case-insensitively
-    const seen = new Set();
-    const cleanList = [];
-    let dirty = false;
-    for (const item of list) {
-      const normalized = normalizeSeriesName(item);
-      if (!normalized) {
-        dirty = true;
-        continue;
-      }
-      const key = canonicalKey(normalized);
-      if (!seen.has(key)) {
-        seen.add(key);
-        cleanList.push(normalized);
-      } else {
-        dirty = true;
-      }
-    }
-    if (dirty) {
-      localStorage.setItem(MANAGED_SERIES_KEY, JSON.stringify(cleanList));
-    }
-    return cleanList;
-  } catch {
-    return [];
-  }
+  // Always return the locked predefined list — no localStorage overrides allowed.
+  // This guarantees only the 14 canonical series exist in any dropdown.
+  return PREDEFINED_SERIES.slice();
 }
 
+/**
+ * saveManagedSeriesName is kept for API compatibility but is now a no-op.
+ * The series list is permanently locked to PREDEFINED_SERIES.
+ * Sermon codes and ad-hoc names are silently rejected.
+ */
 export function saveManagedSeriesName(name) {
   const normalized = normalizeSeriesName(name);
   if (!normalized) return;
-  const list = getManagedSeriesList();
-  const key = canonicalKey(normalized);
-  if (!list.some((item) => canonicalKey(item) === key)) {
-    list.push(normalized);
-    localStorage.setItem(MANAGED_SERIES_KEY, JSON.stringify(list));
+  // Block sermon codes (e.g. 47-0412, 50-0820A)
+  if (SERMON_CODE_PATTERN.test(normalized)) {
+    console.warn(`[Series] Rejected invalid series name (sermon code): "${normalized}"`);
+    return;
   }
+  // Block names not in the predefined list
+  if (!PREDEFINED_SERIES.some((s) => canonicalKey(s) === canonicalKey(normalized))) {
+    console.warn(`[Series] Rejected unknown series name: "${normalized}". Only predefined series are allowed.`);
+    return;
+  }
+  // No-op: list is already locked to PREDEFINED_SERIES
 }
 
 // ── Sortable Row ──────────────────────────────────────────────────────────────

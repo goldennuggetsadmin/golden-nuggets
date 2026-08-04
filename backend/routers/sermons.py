@@ -1,6 +1,11 @@
 """Admin: Sermon CRUD, list, publish, feature, bulk, archive, duplicate."""
 from datetime import datetime, timezone
 from typing import Optional
+import asyncio
+import logging
+import re
+
+logger = logging.getLogger("sermons_router")
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 import uuid
@@ -9,6 +14,25 @@ from auth import require_admin
 from models import Sermon, SermonCreate, SermonUpdate, BulkActionRequest
 from services.sermon_service import SermonService
 from services.serialization import clean, clean_list
+
+# ── Series validation (shared definition) ───────────────────────────────────
+VALID_SERIES = {
+    "General", "My Life Story", "How the Angel Came to Me",
+    "The Revelation of the Seven Seals", "The Revelation of Jesus Christ",
+    "Conduct, Order, and Doctrine of the Church", "The Book of Hebrews",
+    "The Holy Ghost", "Adoption", "The Seventy Weeks of Daniel",
+    "The Church", "Demonology", "Israel and the Church",
+    "The Church Age Book (audio)",
+}
+_SERMON_CODE_RE = re.compile(r"^\d{2}-\d{4}[A-Za-z]?$")
+
+def _resolve_series(value) -> str:
+    if not value or not str(value).strip():
+        return "General"
+    v = str(value).strip()
+    if _SERMON_CODE_RE.match(v) or v not in VALID_SERIES:
+        return "General"
+    return v
 
 router = APIRouter(prefix="/api/v1/admin/sermons", tags=["admin:sermons"])
 
@@ -30,20 +54,31 @@ async def list_sermons(
     _=Depends(require_admin),
 ):
     service = SermonService()
-    result = await service.search_sermons(
-        query=q, status=status, series=series, year=year, language=language,
-        category_id=category_id, source=source, featured=featured,
-        include_archived=include_archived, sort=sort, order=order,
-        page=page, page_size=page_size
-    )
-    return result
+    try:
+        result = await asyncio.wait_for(
+            service.search_sermons(
+                query=q, status=status, series=series, year=year, language=language,
+                category_id=category_id, source=source, featured=featured,
+                include_archived=include_archived, sort=sort, order=order,
+                page=page, page_size=page_size
+            ),
+            timeout=5.0
+        )
+        return result
+    except Exception as e:
+        logger.warning(f"Sermon search failed: {e}")
+        return {"items": [], "total": 0, "page": page, "page_size": page_size}
 
 
 @router.get("/years")
 async def list_years(_=Depends(require_admin)):
-    service = SermonService()
-    years = await service.get_distinct_years()
-    return {"items": years}
+    try:
+        service = SermonService()
+        years = await asyncio.wait_for(service.get_distinct_years(), timeout=5.0)
+        return {"items": years}
+    except Exception as e:
+        logger.warning(f"Sermon list_years failed: {e}")
+        return {"items": []}
 
 
 @router.get("/{sermon_id}")
@@ -55,7 +90,9 @@ async def get_sermon(sermon_id: str, _=Depends(require_admin)):
 @router.post("", response_model=Sermon)
 async def create_sermon(body: SermonCreate, request: Request, current=Depends(require_admin)):
     service = SermonService()
-    sermon = Sermon(**body.model_dump())
+    data = body.model_dump()
+    data["series"] = _resolve_series(data.get("series"))  # Guard: never allow sermon codes as series
+    sermon = Sermon(**data)
     doc = await service.create_sermon(sermon.model_dump(), current, request)
     
     import asyncio
@@ -69,6 +106,8 @@ async def create_sermon(body: SermonCreate, request: Request, current=Depends(re
 async def update_sermon(sermon_id: str, body: SermonUpdate, request: Request, current=Depends(require_admin)):
     service = SermonService()
     updates = body.model_dump(exclude_unset=True)
+    if "series" in updates:
+        updates["series"] = _resolve_series(updates["series"])  # Guard: validate series on every update
     doc = await service.update_sermon(sermon_id, updates, current, request)
     
     import asyncio
