@@ -4,6 +4,7 @@ Uses asyncpg connection pool with Supabase REST fallback.
 """
 from __future__ import annotations
 import uuid
+import json
 import logging
 from typing import Optional, List, Dict, Any
 import httpx
@@ -13,26 +14,42 @@ from repositories.base import BaseRepository
 
 logger = logging.getLogger(__name__)
 
+JSONB_COLS = {"transcripts", "metadata", "pipeline", "quality_diagnostics", "import_report"}
+
 def _clean_val(k: str, v: Any) -> Any:
     if isinstance(v, uuid.UUID):
         return str(v)
-    if isinstance(v, dict):
-        import json
+    if k in JSONB_COLS and isinstance(v, (list, dict)):
         return json.dumps(v, default=str)
-    # NOTE: Python lists are passed through as-is.
-    # asyncpg maps Python lists to PostgreSQL arrays (e.g. text[]) automatically.
-    # Do NOT json.dumps() list values — that converts them to strings, breaking array inserts.
+    if isinstance(v, dict):
+        return json.dumps(v, default=str)
+    # Python lists for ARRAY columns (e.g. tags, category_ids) passed through as-is for asyncpg
     return v
 
 def _row_to_dict(row) -> dict:
+    """Convert an asyncpg Record to a plain dict.
+    
+    JSONB columns (e.g. transcripts, tags) are returned by asyncpg as either:
+    - Already a list/dict (when asyncpg auto-decodes them)
+    - A JSON string (when the column type is text or asyncpg returns raw JSON)
+    We always ensure they are Python objects, never raw JSON strings.
+    """
     if not row:
         return {}
     d = dict(row)
+    # JSONB / JSON-encoded string fields that must be Python objects, never strings.
+    JSON_FIELDS = {"transcripts", "tags", "category_ids", "pipeline", "quality_diagnostics",
+                   "import_report", "metadata"}
     for k, v in d.items():
         if isinstance(v, uuid.UUID):
             d[k] = str(v)
+        elif isinstance(v, str) and k in JSON_FIELDS and v.strip().startswith(("[", "{")):
+            try:
+                d[k] = json.loads(v)
+            except (ValueError, TypeError):
+                pass  # Leave as string if JSON parse fails
         elif isinstance(v, (dict, list)):
-            pass
+            pass  # Already a Python object — no conversion needed
     return d
 
 def _parse_filter(filt: dict, param_start: int = 1) -> tuple[str, list, int]:
@@ -84,10 +101,12 @@ def _parse_filter(filt: dict, param_start: int = 1) -> tuple[str, list, int]:
 SERMON_SUMMARY_COLS = (
     "id, sermon_code, title, speaker, date, year, location, state, series, "
     "language, description, duration, tags, category_ids, featured, status, "
-    "source, source_url, audio_url, artwork_url, pdf_english_url, pdf_telugu_url, "
+    "source, source_url, audio_url, audio_storage_path, artwork_url, artwork_storage_path, "
+    "pdf_english_url, pdf_english_storage_path, pdf_telugu_url, pdf_telugu_storage_path, "
     "is_archived, play_count, download_count, favorite_count, verification_status, "
     "transcript_parsed, transcript_paragraph_count, transcript_page_count, "
-    "transcript_parser_version, approved_by, approved_at, approval_reason, "
+    "transcript_parser_version, transcript, transcripts, "
+    "approved_by, approved_at, approval_reason, "
     "created_at, updated_at"
 )
 

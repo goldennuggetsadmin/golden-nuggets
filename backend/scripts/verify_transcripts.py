@@ -1,79 +1,41 @@
-"""Generic Language-Independent Verification Audit CLI Tool.
-Verifies PDF vs Database Transcript character-by-character for any sermon (Telugu, English, Tamil, Hindi, etc.).
-"""
 import asyncio
-import argparse
-import sys
-import os
-
-# Add parent backend directory to sys.path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from repositories.entities import sermons_repo
-from providers.storage import get_storage_provider
-from services.verifier import verify_transcript
 import httpx
+import json
+import os
+import sys
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-async def run_verification(sermon_id: str):
-    print(f"--- Verifying Sermon Transcript Accuracy: {sermon_id} ---")
-    doc = await sermons_repo().find_one({"id": sermon_id})
-    if not doc:
-        print(f"❌ Sermon {sermon_id} not found in database.")
-        sys.exit(1)
+from db import _init_pool, get_pool
 
-    title = doc.get("title", "Untitled")
-    language = doc.get("language", "Unknown")
-    print(f"Sermon Title: {title}")
-    print(f"Language:     {language}")
+CODES = ['47-0412', '47-1100X', '50-0820A', '55-0220A', '63-0324M']
 
-    # Read PDF Bytes
-    pdf_bytes = None
-    storage_path = doc.get("pdf_telugu_storage_path") or doc.get("pdf_english_storage_path")
-    if storage_path:
-        try:
-            provider = get_storage_provider()
-            data, _ = provider.stream(storage_path)
-            pdf_bytes = data
-        except Exception as e:
-            print(f"Warning: Failed reading storage path {storage_path}: {e}")
+async def run():
+    await _init_pool()
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        for code in CODES:
+            row = await conn.fetchrow(
+                "SELECT id, sermon_code, title, transcript_parsed, transcript FROM sermons WHERE sermon_code = $1",
+                code
+            )
+            if not row:
+                print(f"=== {code}: NOT IN DB ===")
+                continue
 
-    if not pdf_bytes:
-        pdf_url = doc.get("pdf_telugu_url") or doc.get("pdf_english_url")
-        if pdf_url:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
-                resp = await client.get(pdf_url)
-            if resp.status_code < 400:
-                pdf_bytes = resp.content
+            s_id = str(row["id"])
+            async with httpx.AsyncClient() as client:
+                res = await client.get(f"http://localhost:8000/api/v1/mobile/sermons/{s_id}")
+                api_data = res.json()
 
-    if not pdf_bytes:
-        print("❌ Could not obtain PDF bytes for verification.")
-        sys.exit(1)
-
-    paragraphs = doc.get("transcripts") or []
-    res = verify_transcript(pdf_bytes, paragraphs)
-
-    print("\n--- VERIFICATION AUDIT REPORT ---")
-    print(f"PDF SHA-256:             {res.get('pdf_sha256')}")
-    print(f"Paragraph Count:         {res.get('paragraphs')}")
-    print(f"Total Character Count:   {res.get('characters')}")
-    print(f"Exact Match Percentage:  {res.get('exact_match_percentage')}%")
-    print(f"Differences Found:       {res.get('differences')}")
-    print(f"Verified Status:         {'✅ PASSED' if res.get('verified') else '❌ FAILED'}")
-
-    if not res.get('verified'):
-        print(f"Failure Reason:          {res.get('failure_reason')}")
-        print("\n--- Detailed Forensic Audit (First 10 Mismatches) ---")
-        for diff in res.get("audit_report", [])[:10]:
-            print(diff)
-        sys.exit(1)
-    else:
-        print("\n🎉 100.0% Character-for-Character Verification Passed!")
-
+            t_api = api_data.get("transcripts")
+            print(f"=== {code} ({row['title']}) ===")
+            print(f"  DB transcript_parsed:       {row['transcript_parsed']}")
+            print(f"  API transcript_parsed:      {api_data.get('transcript_parsed')}")
+            print(f"  API transcripts count:      {len(t_api) if isinstance(t_api, list) else 0}")
+            if isinstance(t_api, list) and len(t_api) > 0:
+                print(f"  API first paragraph sample: {repr(t_api[0].get('text', '')[:80])}")
+            print()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Verify sermon transcript accuracy against source PDF")
-    parser.add_argument("sermon_id", help="Sermon ID to verify")
-    args = parser.parse_args()
-
-    asyncio.run(run_verification(args.sermon_id))
+    asyncio.run(run())

@@ -86,6 +86,35 @@ async def _resolve_media_url(
     return legacy_url
 
 
+def _build_transcripts(s: dict) -> list:
+    import json
+    raw = s.get("transcripts")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = None
+    if isinstance(raw, list) and len(raw) > 0:
+        return raw
+
+    # Fallback if DB transcripts JSONB is empty but transcript/canonical_text text column exists
+    text_val = s.get("transcript") or s.get("canonical_text")
+    if text_val and isinstance(text_val, str) and text_val.strip():
+        lang = s.get("language") or "English"
+        paras = []
+        for idx, block in enumerate(text_val.split("\n\n")):
+            clean_block = block.strip()
+            if clean_block:
+                paras.append({
+                    "paragraph_number": idx + 1,
+                    "text": clean_block,
+                    "language": lang,
+                })
+        return paras
+
+    return []
+
+
 async def _project_sermon(s: dict) -> dict:
     """Shape a sermon for mobile consumption.
     
@@ -106,6 +135,7 @@ async def _project_sermon(s: dict) -> dict:
     )
 
     code_str = s.get("sermon_code") or s.get("id") or "sermon"
+    built_transcripts = _build_transcripts(s)
 
     return {
         "id": s.get("id"),
@@ -150,10 +180,10 @@ async def _project_sermon(s: dict) -> dict:
         "official_pdf_hash": s.get("official_pdf_hash") or s.get("english_pdf_hash") or s.get("telugu_pdf_hash"),
         "import_engine": s.get("import_engine"),
         "import_report": s.get("import_report"),
-        "transcripts": s.get("transcripts", []) or ([{"language": s.get("language") or "English", "text": s.get("canonical_text") or s.get("transcript"), "paragraphs": [{"text": p.strip(), "paragraph_number": i + 1} for i, p in enumerate(((s.get("canonical_text") or s.get("transcript")) or "").split("\n\n")) if p.strip()]}] if (s.get("canonical_text") or s.get("transcript")) else []),
+        "transcripts": built_transcripts,
         "transcript_page_count": s.get("transcript_page_count", 0),
-        "transcript_paragraph_count": s.get("transcript_paragraph_count", 0),
-        "transcript_parsed": bool(s.get("transcript_parsed")) or bool(s.get("canonical_text")) or bool(s.get("transcript")),
+        "transcript_paragraph_count": len(built_transcripts) or s.get("transcript_paragraph_count", 0),
+        "transcript_parsed": len(built_transcripts) > 0 or bool(s.get("transcript_parsed")) or bool(s.get("canonical_text")) or bool(s.get("transcript")),
         "created_at": s.get("created_at"),
     }
 

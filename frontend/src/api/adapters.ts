@@ -27,10 +27,18 @@ export interface BackendSermon {
   featured?: boolean;
   sermon_code?: string | null;
   source?: string | null;
-  audio_url?: string | null;
-  artwork_url?: string | null;
   pdf_english_url?: string | null;
   pdf_telugu_url?: string | null;
+  english_pdf_url?: string | null;
+  english_pdf_hash?: string | null;
+  english_pdf_size?: number | null;
+  english_pdf_filename?: string | null;
+  english_pdf_page_count?: number | null;
+  telugu_pdf_url?: string | null;
+  telugu_pdf_hash?: string | null;
+  telugu_pdf_size?: number | null;
+  telugu_pdf_filename?: string | null;
+  telugu_pdf_page_count?: number | null;
   transcripts?: BackendTranscriptParagraph[];
   transcript_parsed?: boolean;
   transcript_page_count?: number;
@@ -114,8 +122,8 @@ export async function adaptSermon(
   
   const transcripts: Transcript[] = [];
 
-  // Use parsed transcript paragraphs from the backend JSONB if available
-  if (s.transcripts && s.transcripts.length > 0 && s.transcript_parsed) {
+  // Use parsed transcript paragraphs from the backend if available
+  if (s.transcripts && Array.isArray(s.transcripts) && s.transcripts.length > 0) {
     // Group backend paragraphs by language
     const byLang: Record<string, BackendTranscriptParagraph[]> = {};
     for (const p of s.transcripts) {
@@ -169,7 +177,18 @@ export async function adaptSermon(
     art_url: s.artwork_url || null,
     art_thumb_url: s.artwork_url || null,
     audio_url: s.audio_url || null,
-    audio_bytes: 0,
+    pdf_english_url: s.english_pdf_url || s.pdf_english_url || null,
+    pdf_telugu_url: s.telugu_pdf_url || s.pdf_telugu_url || null,
+    english_pdf_url: s.english_pdf_url || s.pdf_english_url || null,
+    english_pdf_hash: s.english_pdf_hash || null,
+    english_pdf_size: s.english_pdf_size || 0,
+    english_pdf_filename: s.english_pdf_filename || null,
+    english_pdf_page_count: s.english_pdf_page_count || 0,
+    telugu_pdf_url: s.telugu_pdf_url || s.pdf_telugu_url || null,
+    telugu_pdf_hash: s.telugu_pdf_hash || null,
+    telugu_pdf_size: s.telugu_pdf_size || 0,
+    telugu_pdf_filename: s.telugu_pdf_filename || null,
+    telugu_pdf_page_count: s.telugu_pdf_page_count || 0,
     favorite: favs.has(s.id),
     downloaded: downloadedSet ? downloadedSet.has(s.id) : false,
     progress: progressRatio,
