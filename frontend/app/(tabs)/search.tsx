@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useFocusEffect } from "expo-router";
 
 import { api, Testimony } from "@/src/api/client";
+import { cacheStore } from "@/src/utils/cache";
 import { radii, spacing, typography } from "@/src/theme/tokens";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { Skeleton } from "@/src/components/Skeleton";
@@ -18,6 +19,11 @@ const SEARCH_TABS = ["Title", "Year", "State", "Series"] as const;
 type SearchTab = typeof SEARCH_TABS[number];
 const TAB_BAR_INSET = 100;
 
+interface YearSummary {
+  year: number;
+  sermonCount: number;
+}
+
 export default function SearchScreen() {
   const insets = useSafeAreaInsets();
   const { appLanguage } = useSettings();
@@ -27,46 +33,126 @@ export default function SearchScreen() {
   const [q, setQ] = useState("");
   const [activeTab, setActiveTab] = useState<SearchTab>("Title");
   const [allSermons, setAllSermons] = useState<Testimony[]>([]);
+  const [yearSummaries, setYearSummaries] = useState<YearSummary[]>([]);
   const [searchResults, setSearchResults] = useState<Testimony[]>([]);
   const [searching, setSearching] = useState(false);
+  const [loadingMaster, setLoadingMaster] = useState(true);
+  const [initialLoaded, setInitialLoaded] = useState(false);
+  const [hasNetworkError, setHasNetworkError] = useState(false);
 
-  // Reload all sermons whenever tab comes into focus OR language changes
+  const isMountedRef = useRef(true);
+  const lastLangRef = useRef<string>("");
+
+  /**
+   * Master sermon loader with fallback cache and network error state handling.
+   */
+  const fetchMasterSermons = useCallback(async (lang: string) => {
+    console.log(`[SearchScreen] Loading master sermons for language: "${lang}"`);
+    setHasNetworkError(false);
+
+    // 1. Versioned Cache Recovery (Instant load <1ms)
+    const cachedYears = await cacheStore.get<YearSummary[]>(`years_summary_v3_${lang}`);
+    const cachedSermons = await cacheStore.get<Testimony[]>(`search_master_v3_${lang}`);
+
+    if (cachedYears && cachedYears.length > 0 && isMountedRef.current) {
+      setYearSummaries(cachedYears);
+    }
+
+    if (cachedSermons && cachedSermons.length >= 100 && isMountedRef.current) {
+      console.log(`[SearchScreen] Instant cache hit: ${cachedSermons.length} sermons for lang "${lang}"`);
+      const sorted = [...cachedSermons].sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+      setAllSermons(sorted);
+      setLoadingMaster(false);
+      setInitialLoaded(true);
+    } else if (isMountedRef.current) {
+      setLoadingMaster(true);
+    }
+
+    // 2. Parallel Async API Fetch for Years Summary + Full Sermon Catalog
+    let fetchFailed = false;
+    try {
+      const [yearsRes, itemsRes] = await Promise.all([
+        api.years(lang).catch((e) => { fetchFailed = true; return []; }),
+        api.search("", undefined, lang).catch((e) => { fetchFailed = true; return []; }),
+      ]);
+
+      if (!isMountedRef.current) return;
+
+      if (yearsRes && yearsRes.length > 0) {
+        setYearSummaries(yearsRes);
+        cacheStore.set(`years_summary_v3_${lang}`, yearsRes);
+      }
+
+      if (itemsRes && itemsRes.length > 0) {
+        const sorted = [...itemsRes].sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+        setAllSermons(sorted);
+        cacheStore.set(`search_master_v3_${lang}`, sorted);
+        fetchFailed = false;
+        console.log(`[SearchScreen] API sync complete: ${sorted.length} master sermons for lang "${lang}"`);
+      } else if (fetchFailed) {
+        console.warn(`[SearchScreen] API fetch encountered connection error for lang "${lang}"`);
+      }
+    } catch (err) {
+      fetchFailed = true;
+      console.error(`[SearchScreen] API fetch exception for lang "${lang}":`, err);
+    } finally {
+      if (isMountedRef.current) {
+        setLoadingMaster(false);
+        setInitialLoaded(true);
+
+        // 3. Fallback recovery if state is still empty after network failure
+        if (allSermons.length === 0) {
+          const fallback = (await cacheStore.get<Testimony[]>("sermons_fallback")) || (await cacheStore.get<Testimony[]>("sermons_all"));
+          if (fallback && fallback.length > 0) {
+            console.log(`[SearchScreen] Recovered ${fallback.length} fallback sermons from offline store`);
+            setAllSermons(fallback);
+          } else if (fetchFailed) {
+            setHasNetworkError(true);
+          }
+        }
+      }
+    }
+  }, [allSermons.length]);
+
+  // Focus effect: Syncs master list whenever Search tab is focused
   useFocusEffect(
     useCallback(() => {
-      api.search("", undefined, appLanguage)
-        .then((items) => {
-          const sorted = [...items].sort((a, b) => a.title.localeCompare(b.title));
-          setAllSermons(sorted);
-        })
-        .catch(() => {});
-    }, [appLanguage])
+      isMountedRef.current = true;
+      fetchMasterSermons(appLanguage);
+
+      return () => {
+        isMountedRef.current = false;
+      };
+    }, [appLanguage, fetchMasterSermons])
   );
 
-  // Also reload when language changes even without focus re-entry
+  // Language switch handler: Resets query and re-fetches for target language
   useEffect(() => {
-    api.search("", undefined, appLanguage)
-      .then((items) => {
-        const sorted = [...items].sort((a, b) => a.title.localeCompare(b.title));
-        setAllSermons(sorted);
-        // Clear query results so stale cross-language results don't linger
-        setSearchResults([]);
-        setQ("");
-      })
-      .catch(() => {});
-  }, [appLanguage]);
+    if (lastLangRef.current && lastLangRef.current !== appLanguage) {
+      console.log(`[SearchScreen] Language changed from "${lastLangRef.current}" -> "${appLanguage}"`);
+      setSearchResults([]);
+      setQ("");
+      fetchMasterSermons(appLanguage);
+    }
+    lastLangRef.current = appLanguage;
+  }, [appLanguage, fetchMasterSermons]);
 
+  // Debounced search query handler
   const doSearch = useCallback(async (needle: string, lang: string) => {
     if (!needle.trim()) {
       setSearchResults([]);
       setSearching(false);
       return;
     }
+    console.log(`[SearchScreen] Querying needle="${needle}", lang="${lang}"`);
     setSearching(true);
     try {
       const r = await api.search(needle, undefined, lang);
-      const sorted = [...r].sort((a, b) => a.title.localeCompare(b.title));
+      const sorted = [...r].sort((a, b) => (a.title || "").localeCompare(b.title || ""));
       setSearchResults(sorted);
-    } catch {
+      console.log(`[SearchScreen] Query results count: ${sorted.length}`);
+    } catch (err) {
+      console.error(`[SearchScreen] Query failed for needle="${needle}":`, err);
       setSearchResults([]);
     } finally {
       setSearching(false);
@@ -79,25 +165,40 @@ export default function SearchScreen() {
   }, [q, appLanguage, doSearch]);
 
   const isQuerying = q.trim().length > 0;
+  const activeDataset = isQuerying ? searchResults : allSermons;
 
-  // Groupings for Year, State, Series — derived from already-language-filtered allSermons
+  // Dynamic Groupings for Year, State, Series
   const yearGroups = useMemo(() => {
     const map: Record<string, Testimony[]> = {};
-    const dataset = isQuerying ? searchResults : allSermons;
-    dataset.forEach((item) => {
+    activeDataset.forEach((item) => {
       if (item.year) {
         const yr = String(item.year);
         if (!map[yr]) map[yr] = [];
         map[yr].push(item);
       }
     });
-    return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
-  }, [allSermons, searchResults, isQuerying]);
+
+    if (!isQuerying && yearSummaries.length > 0) {
+      yearSummaries.forEach((ys) => {
+        const yrStr = String(ys.year);
+        if (!map[yrStr]) {
+          map[yrStr] = [];
+        }
+      });
+    }
+
+    const entries = Object.entries(map).map(([yrStr, items]) => {
+      const matchingSummary = yearSummaries.find((ys) => String(ys.year) === yrStr);
+      const displayCount = matchingSummary ? matchingSummary.sermonCount : items.length;
+      return [yrStr, items, displayCount] as [string, Testimony[], number];
+    });
+
+    return entries.sort((a, b) => b[0].localeCompare(a[0]));
+  }, [activeDataset, isQuerying, yearSummaries]);
 
   const stateGroups = useMemo(() => {
     const map: Record<string, Testimony[]> = {};
-    const dataset = isQuerying ? searchResults : allSermons;
-    dataset.forEach((item) => {
+    activeDataset.forEach((item) => {
       if (item.state && String(item.state).trim()) {
         const st = String(item.state).trim();
         if (!map[st]) map[st] = [];
@@ -105,12 +206,11 @@ export default function SearchScreen() {
       }
     });
     return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [allSermons, searchResults, isQuerying]);
+  }, [activeDataset]);
 
   const seriesGroups = useMemo(() => {
     const map: Record<string, Testimony[]> = {};
-    const dataset = isQuerying ? searchResults : allSermons;
-    dataset.forEach((item) => {
+    activeDataset.forEach((item) => {
       const s = (item.category && item.category.trim()) ? item.category.trim() : "General";
       if (!map[s]) map[s] = [];
       map[s].push(item);
@@ -121,8 +221,7 @@ export default function SearchScreen() {
       if (b[0] === "General") return -1;
       return a[0].localeCompare(b[0]);
     });
-  }, [allSermons, searchResults, isQuerying]);
-
+  }, [activeDataset]);
 
   return (
     <ScrollView
@@ -134,7 +233,7 @@ export default function SearchScreen() {
         <Text style={styles.h1}>Search</Text>
       </View>
 
-      {/* Language Selector — ABOVE search bar as required */}
+      {/* Language Selector — ABOVE search bar */}
       <View style={{ paddingHorizontal: spacing[5], marginBottom: spacing[3] }}>
         <LanguageSelector testID="search-lang-selector" />
       </View>
@@ -205,7 +304,20 @@ export default function SearchScreen() {
           {/* TITLE TAB */}
           {activeTab === "Title" && (
             <View style={{ paddingHorizontal: spacing[5] }}>
-              {allSermons.length === 0 ? (
+              {loadingMaster && allSermons.length === 0 ? (
+                <View style={{ gap: spacing[2] }}>
+                  {[0, 1, 2, 3].map((i) => (
+                    <Skeleton key={i} style={{ height: 72, borderRadius: radii.md, marginTop: spacing[2] }} />
+                  ))}
+                </View>
+              ) : hasNetworkError && allSermons.length === 0 ? (
+                <View style={styles.errorWrap}>
+                  <EmptyState icon="cloud-offline-outline" title="Unable to Connect" message="Could not connect to server. Please check your connection." />
+                  <Pressable style={styles.retryBtn} onPress={() => fetchMasterSermons(appLanguage)}>
+                    <Text style={styles.retryBtnText}>Tap to Retry</Text>
+                  </Pressable>
+                </View>
+              ) : !loadingMaster && initialLoaded && allSermons.length === 0 ? (
                 <EmptyState icon="musical-notes-outline" title="No sermons" message="No sermons available in this language." />
               ) : (
                 allSermons.map((item) => (
@@ -218,14 +330,27 @@ export default function SearchScreen() {
           {/* YEAR TAB — Expandable Groups */}
           {activeTab === "Year" && (
             <View style={{ paddingHorizontal: spacing[5] }}>
-              {yearGroups.length === 0 ? (
+              {loadingMaster && yearGroups.length === 0 ? (
+                <View style={{ gap: spacing[2] }}>
+                  {[0, 1, 2, 3].map((i) => (
+                    <Skeleton key={i} style={{ height: 60, borderRadius: radii.md, marginTop: spacing[2] }} />
+                  ))}
+                </View>
+              ) : hasNetworkError && yearGroups.length === 0 ? (
+                <View style={styles.errorWrap}>
+                  <EmptyState icon="cloud-offline-outline" title="Unable to Connect" message="Could not connect to server. Please check your connection." />
+                  <Pressable style={styles.retryBtn} onPress={() => fetchMasterSermons(appLanguage)}>
+                    <Text style={styles.retryBtnText}>Tap to Retry</Text>
+                  </Pressable>
+                </View>
+              ) : !loadingMaster && initialLoaded && yearGroups.length === 0 ? (
                 <EmptyState icon="calendar-outline" title="No sermons" message="No sermons found for this language." />
               ) : (
-                yearGroups.map(([yearStr, items]) => (
+                yearGroups.map(([yearStr, items, displayCount]) => (
                   <ExpandableGroup
                     key={yearStr}
                     title={yearStr}
-                    count={items.length}
+                    count={displayCount}
                     subtitle="Last Updated"
                     items={items}
                   />
@@ -237,7 +362,20 @@ export default function SearchScreen() {
           {/* STATE TAB — Expandable Groups */}
           {activeTab === "State" && (
             <View style={{ paddingHorizontal: spacing[5] }}>
-              {stateGroups.length === 0 ? (
+              {loadingMaster && stateGroups.length === 0 ? (
+                <View style={{ gap: spacing[2] }}>
+                  {[0, 1, 2, 3].map((i) => (
+                    <Skeleton key={i} style={{ height: 60, borderRadius: radii.md, marginTop: spacing[2] }} />
+                  ))}
+                </View>
+              ) : hasNetworkError && stateGroups.length === 0 ? (
+                <View style={styles.errorWrap}>
+                  <EmptyState icon="cloud-offline-outline" title="Unable to Connect" message="Could not connect to server. Please check your connection." />
+                  <Pressable style={styles.retryBtn} onPress={() => fetchMasterSermons(appLanguage)}>
+                    <Text style={styles.retryBtnText}>Tap to Retry</Text>
+                  </Pressable>
+                </View>
+              ) : !loadingMaster && initialLoaded && stateGroups.length === 0 ? (
                 <EmptyState icon="location-outline" title="No sermons" message="No sermons with location data in this language." />
               ) : (
                 stateGroups.map(([stateStr, items]) => (
@@ -256,7 +394,20 @@ export default function SearchScreen() {
           {/* SERIES TAB — Clean Vertical List */}
           {activeTab === "Series" && (
             <View style={{ paddingHorizontal: spacing[5] }}>
-              {seriesGroups.length === 0 ? (
+              {loadingMaster && seriesGroups.length === 0 ? (
+                <View style={{ gap: spacing[2] }}>
+                  {[0, 1, 2, 3].map((i) => (
+                    <Skeleton key={i} style={{ height: 56, borderRadius: radii.md, marginTop: spacing[2] }} />
+                  ))}
+                </View>
+              ) : hasNetworkError && seriesGroups.length === 0 ? (
+                <View style={styles.errorWrap}>
+                  <EmptyState icon="cloud-offline-outline" title="Unable to Connect" message="Could not connect to server. Please check your connection." />
+                  <Pressable style={styles.retryBtn} onPress={() => fetchMasterSermons(appLanguage)}>
+                    <Text style={styles.retryBtnText}>Tap to Retry</Text>
+                  </Pressable>
+                </View>
+              ) : !loadingMaster && initialLoaded && seriesGroups.length === 0 ? (
                 <EmptyState icon="albums-outline" title="No series" message="No series available in this language." />
               ) : (
                 seriesGroups.map(([seriesName, items], index) => (
@@ -302,4 +453,7 @@ const getStyles = (colors: any, theme: string) => StyleSheet.create({
   seriesRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.hairline },
   seriesRowTitle: { fontSize: 17, fontFamily: typography.serif, color: colors.foreground },
   seriesRowMeta: { fontSize: 12, fontFamily: typography.sans, color: colors.gold, marginTop: 2 },
+  errorWrap: { alignItems: "center", gap: spacing[3] },
+  retryBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: radii.xl, backgroundColor: colors.emerald, marginTop: spacing[2] },
+  retryBtnText: { fontSize: 14, fontFamily: typography.sansSemi, color: theme === "dark" ? colors.background : "#fff" },
 });

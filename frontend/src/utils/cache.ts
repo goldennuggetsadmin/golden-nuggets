@@ -64,6 +64,11 @@ export const cacheStore = {
       storage.removeItem(`cache.${key}`).catch(() => {});
     } else {
       memoryCache.clear();
+      storage.removeItem("cache.search_master_en").catch(() => {});
+      storage.removeItem("cache.search_master_te").catch(() => {});
+      storage.removeItem("cache.search__en").catch(() => {});
+      storage.removeItem("cache.sermons_all").catch(() => {});
+      storage.removeItem("cache.sermons_{}").catch(() => {});
     }
   },
 };

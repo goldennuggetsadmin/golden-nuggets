@@ -193,7 +193,7 @@ async def list_sermons(
     sort: str = "created_at",
     order: str = "desc",
     page: int = 1,
-    page_size: int = 1000,
+    page_size: int = 10000,
 ):
     filt: dict = {"status": "published", "is_archived": {"$ne": True}}
     if q and isinstance(q, str):
@@ -204,9 +204,10 @@ async def list_sermons(
             {"series": {"$regex": q, "$options": "i"}},
         ]
     if language:
-        if language.lower() == "en":
+        l_lower = language.lower()
+        if l_lower in ["en", "english"]:
             filt["language"] = {"$in": ["en", "English", "english", "EN"]}
-        elif language.lower() == "te":
+        elif l_lower in ["te", "telugu"]:
             filt["language"] = {"$in": ["te", "Telugu", "telugu", "TE"]}
         else:
             filt["language"] = language
@@ -237,6 +238,46 @@ async def list_sermons(
     for s in paginated_items:
         projected_items.append(await _project_sermon(s))
     return {"items": projected_items, "total": total, "page": page, "page_size": page_size}
+
+
+@router.get("/years")
+async def list_years(language: Optional[str] = None):
+    """Return summary of published sermons grouped by year in descending order."""
+    filt: dict = {"status": "published", "is_archived": {"$ne": True}}
+    if language:
+        l_lower = language.lower()
+        if l_lower in ["en", "english"]:
+            filt["language"] = {"$in": ["en", "English", "english", "EN"]}
+        elif l_lower in ["te", "telugu"]:
+            filt["language"] = {"$in": ["te", "Telugu", "telugu", "TE"]}
+        else:
+            filt["language"] = language
+
+    repo = sermons_repo()
+    raw_items = await repo.find(filt)
+
+    counts: dict[int, int] = {}
+    for s in raw_items:
+        yr = s.get("year")
+        if not yr and s.get("date"):
+            yr = str(s.get("date"))[:4]
+        if not yr and s.get("sermon_code"):
+            code = str(s.get("sermon_code"))
+            if len(code) >= 2 and code[:2].isdigit():
+                yy = int(code[:2])
+                yr = 1900 + yy if yy >= 40 else 2000 + yy
+        if yr:
+            try:
+                yr_num = int(str(yr).strip())
+                counts[yr_num] = counts.get(yr_num, 0) + 1
+            except ValueError:
+                pass
+
+    sorted_years = [
+        {"year": yr, "sermonCount": count}
+        for yr, count in sorted(counts.items(), key=lambda x: x[0], reverse=True)
+    ]
+    return sorted_years
 
 
 @router.get("/sermons/{sermon_id}")

@@ -19,7 +19,7 @@ import { Platform } from "react-native";
 
 const PRODUCTION_BASE = "https://web-production-1fc9d.up.railway.app/api/v1/mobile";
 const LOCAL_BASE = Platform.OS === "android" ? "http://10.0.2.2:8000/api/v1/mobile" : "http://127.0.0.1:8000/api/v1/mobile";
-const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || PRODUCTION_BASE;
+const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || (__DEV__ ? LOCAL_BASE : PRODUCTION_BASE);
 
 // ------------------------------ types
 export interface TranscriptParagraph {
@@ -191,6 +191,16 @@ export const api = {
     const raw = await j<BackendHomePayload>(`/home${langParam ? `?language=${langParam}` : ""}`);
     const adapted = await adaptHomeFeed(raw);
     cacheStore.set(cacheKey, adapted);
+
+    // Pre-seed fallback cache for search & offline mode
+    const homeSermons: Testimony[] = [];
+    if (adapted.featured) homeSermons.push(adapted.featured);
+    if (adapted.continue_listening) homeSermons.push(adapted.continue_listening);
+    if (Array.isArray(adapted.recently_added)) homeSermons.push(...adapted.recently_added);
+    if (Array.isArray(adapted.popular)) homeSermons.push(...adapted.popular);
+    if (homeSermons.length > 0) {
+      cacheStore.set("sermons_fallback", homeSermons);
+    }
     return adapted;
   },
 
@@ -199,9 +209,10 @@ export const api = {
   },
 
   listTestimonies: async (params: Record<string, string | boolean | number> = {}): Promise<Testimony[]> => {
-    const cacheKey = `sermons_${JSON.stringify(params)}`;
+    const paramsWithPageSize = { page_size: 10000, ...params };
+    const cacheKey = `sermons_v3_${JSON.stringify(paramsWithPageSize)}`;
     const qs = new URLSearchParams();
-    Object.entries(params).forEach(([k, v]) => qs.set(k, String(v)));
+    Object.entries(paramsWithPageSize).forEach(([k, v]) => qs.set(k, String(v)));
     const res = await j<{ items: BackendSermon[]; total: number }>(`/sermons${qs.toString() ? `?${qs}` : ""}`);
     const favs = await userStore.getFavorites();
     const progs = await userStore.getProgressMap();
@@ -224,10 +235,11 @@ export const api = {
 
   search: async (q: string, category_id?: string, language?: string): Promise<Testimony[]> => {
     const langKey = language || "en";
-    const cacheKey = `search_${q}_${category_id || ""}_${langKey}`;
-    const masterCacheKey = `search_master_${langKey}`;
+    const cacheKey = `search_v3_${q}_${category_id || ""}_${langKey}`;
+    const masterCacheKey = `search_master_v3_${langKey}`;
 
     const qs = new URLSearchParams();
+    qs.set("page_size", "10000");
     if (q) qs.set("q", q);
     if (category_id) qs.set("category_id", category_id);
     // Always send full DB name so the backend matches correctly ("English"/"Telugu")
@@ -277,6 +289,12 @@ export const api = {
 
       return [];
     }
+  },
+
+  years: async (language?: string): Promise<{ year: number; sermonCount: number }[]> => {
+    const langParam = _toLangParam(language);
+    const qs = langParam ? `?language=${langParam}` : "";
+    return j<{ year: number; sermonCount: number }[]>(`/years${qs}`);
   },
 
   categories: async (): Promise<Category[]> => {

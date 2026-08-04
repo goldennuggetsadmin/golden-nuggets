@@ -130,18 +130,14 @@ class PostgreSQLRepository(BaseRepository):
         try:
             url = f"{settings.SUPABASE_URL}/rest/v1/{self.table}"
             select_cols = SERMON_SUMMARY_COLS if self.table == "sermons" else "*"
-            params = {"select": select_cols}
-            if limit:
-                params["limit"] = str(limit)
-            if skip:
-                params["offset"] = str(skip)
+            base_params = {"select": select_cols}
             if sort:
                 orders = []
                 for col, order in sort:
                     direction = "desc" if order == -1 else "asc"
                     orders.append(f"{col}.{direction}")
-                params["order"] = ",".join(orders)
-                
+                base_params["order"] = ",".join(orders)
+
             if filt:
                 for k, v in filt.items():
                     if k == "$or" and isinstance(v, list):
@@ -158,27 +154,45 @@ class PostgreSQLRepository(BaseRepository):
                                 elif sv is not None:
                                     or_conds.append(f"{sk}.eq.{sv}")
                         if or_conds:
-                            params["or"] = f"({','.join(or_conds)})"
+                            base_params["or"] = f"({','.join(or_conds)})"
                         continue
 
                     if isinstance(v, dict):
                         if "$in" in v and v["$in"]:
-                            params[f"{k}"] = f"in.({','.join(str(x) for x in v['$in'])})"
+                            base_params[f"{k}"] = f"in.({','.join(str(x) for x in v['$in'])})"
                         elif "$gte" in v:
-                            params[f"{k}"] = f"gte.{v['$gte']}"
+                            base_params[f"{k}"] = f"gte.{v['$gte']}"
                         elif "$lte" in v:
-                            params[f"{k}"] = f"lte.{v['$lte']}"
+                            base_params[f"{k}"] = f"lte.{v['$lte']}"
                         elif "$regex" in v:
-                            params[f"{k}"] = f"ilike.*{v['$regex']}*"
+                            base_params[f"{k}"] = f"ilike.*{v['$regex']}*"
                         elif "$ne" in v:
-                            params[f"{k}"] = f"neq.{v['$ne']}"
+                            base_params[f"{k}"] = f"neq.{v['$ne']}"
                     elif v is not None:
-                        params[f"{k}"] = f"eq.{v}"
+                        base_params[f"{k}"] = f"eq.{v}"
 
             client = get_httpx_client()
-            res = await client.get(url, headers=self._get_supabase_headers(), params=params, timeout=3.0)
-            res.raise_for_status()
-            return res.json()
+            all_results = []
+            current_offset = skip
+            max_to_fetch = limit if limit > 0 else 50000
+
+            while len(all_results) < max_to_fetch:
+                batch_limit = min(1000, max_to_fetch - len(all_results))
+                params = dict(base_params)
+                params["limit"] = str(batch_limit)
+                params["offset"] = str(current_offset)
+
+                res = await client.get(url, headers=self._get_supabase_headers(), params=params, timeout=5.0)
+                res.raise_for_status()
+                batch = res.json()
+                if not batch or not isinstance(batch, list):
+                    break
+                all_results.extend(batch)
+                if len(batch) < 1000:
+                    break
+                current_offset += len(batch)
+
+            return all_results
         except Exception as e:
             logger.error(f"Supabase REST query failed for {self.table}: {e}")
             return []
