@@ -1,64 +1,75 @@
+"""
+PostgreSQL Async Repository implementation for Golden Nuggets — production.
+Uses asyncpg connection pool with Supabase REST fallback.
+"""
+from __future__ import annotations
 import uuid
 import logging
-from typing import Optional, Any
-from db import get_pool
-from .base import BaseRepository
-from config.settings import settings
+from typing import Optional, List, Dict, Any
 import httpx
+
+from config.settings import settings
+from repositories.base import BaseRepository
 
 logger = logging.getLogger(__name__)
 
 def _clean_val(k: str, v: Any) -> Any:
-    if isinstance(v, (dict, list)):
+    if isinstance(v, uuid.UUID):
+        return str(v)
+    if isinstance(v, dict):
         import json
-        return json.dumps(v)
+        return json.dumps(v, default=str)
+    # NOTE: Python lists are passed through as-is.
+    # asyncpg maps Python lists to PostgreSQL arrays (e.g. text[]) automatically.
+    # Do NOT json.dumps() list values — that converts them to strings, breaking array inserts.
     return v
 
 def _row_to_dict(row) -> dict:
-    if row is None:
-        return None
+    if not row:
+        return {}
     d = dict(row)
     for k, v in d.items():
-        if isinstance(v, str) and (v.startswith("{") or v.startswith("[")):
-            try:
-                import json
-                d[k] = json.loads(v)
-            except Exception:
-                pass
+        if isinstance(v, uuid.UUID):
+            d[k] = str(v)
+        elif isinstance(v, (dict, list)):
+            pass
     return d
 
-def _parse_filter(filt: dict, param_offset: int = 1) -> tuple[str, list, int]:
+def _parse_filter(filt: dict, param_start: int = 1) -> tuple[str, list, int]:
     if not filt:
-        return "1=1", [], param_offset
+        return "1=1", [], param_start
+
     clauses = []
     params = []
-    idx = param_offset
+    idx = param_start
+
     for k, v in filt.items():
-        if isinstance(v, dict):
-            if "$in" in v:
-                in_vals = v["$in"]
-                if not in_vals:
-                    clauses.append("1=0")
-                else:
-                    placeholders = ", ".join(f"${idx + i}" for i in range(len(in_vals)))
-                    clauses.append(f"{k} IN ({placeholders})")
-                    params.extend(in_vals)
-                    idx += len(in_vals)
-            elif "$gte" in v or "$lte" in v or "$gt" in v or "$lt" in v:
-                for op, sql_op in [("$gte", ">="), ("$lte", "<="), ("$gt", ">"), ("$lt", "<")]:
-                    if op in v:
-                        clauses.append(f"{k} {sql_op} ${idx}")
-                        params.append(v[op])
-                        idx += 1
+        if k == "$or" and isinstance(v, list):
+            or_clauses = []
+            for sub in v:
+                sub_clause, sub_params, idx = _parse_filter(sub, idx)
+                or_clauses.append(f"({sub_clause})")
+                params.extend(sub_params)
+            if or_clauses:
+                clauses.append(f"({' OR '.join(or_clauses)})")
+        elif isinstance(v, dict):
+            if "$in" in v and v["$in"]:
+                placeholders = ", ".join(f"${idx + i}" for i in range(len(v["$in"])))
+                clauses.append(f"{k} IN ({placeholders})")
+                params.extend(v["$in"])
+                idx += len(v["$in"])
             elif "$regex" in v:
                 pattern = v["$regex"]
-                flags = v.get("$options", "")
-                op = "~*" if "i" in flags else "~"
+                opts = v.get("$options", "")
+                op = "~*" if "i" in opts else "~"
                 clauses.append(f"{k} {op} ${idx}")
                 params.append(pattern)
                 idx += 1
             elif "$ne" in v:
-                clauses.append(f"{k} != ${idx}")
+                # IS DISTINCT FROM handles NULLs correctly:
+                # NULL IS DISTINCT FROM TRUE → TRUE (row included)
+                # FALSE IS DISTINCT FROM TRUE → TRUE (row included)
+                clauses.append(f"{k} IS DISTINCT FROM ${idx}")
                 params.append(v["$ne"])
                 idx += 1
         elif v is None:
@@ -68,6 +79,39 @@ def _parse_filter(filt: dict, param_offset: int = 1) -> tuple[str, list, int]:
             params.append(v)
             idx += 1
     return " AND ".join(clauses) if clauses else "1=1", params, idx
+
+
+SERMON_SUMMARY_COLS = (
+    "id, sermon_code, title, speaker, date, year, location, state, series, "
+    "language, description, duration, tags, category_ids, featured, status, "
+    "source, source_url, audio_url, artwork_url, pdf_english_url, pdf_telugu_url, "
+    "is_archived, play_count, download_count, favorite_count, verification_status, "
+    "transcript_parsed, transcript_paragraph_count, transcript_page_count, "
+    "transcript_parser_version, approved_by, approved_at, approval_reason, "
+    "created_at, updated_at"
+)
+
+# Global connection pool
+_pool = None
+
+def get_pool():
+    global _pool
+    if _pool is None:
+        import db
+        _pool = db.get_pool()
+    return _pool
+
+_HTTPX_CLIENT: Optional[httpx.AsyncClient] = None
+
+def get_httpx_client() -> httpx.AsyncClient:
+    global _HTTPX_CLIENT
+    if _HTTPX_CLIENT is None or _HTTPX_CLIENT.is_closed:
+        _HTTPX_CLIENT = httpx.AsyncClient(
+            verify=False,
+            timeout=10.0,
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=100)
+        )
+    return _HTTPX_CLIENT
 
 
 class PostgreSQLRepository(BaseRepository):
@@ -83,37 +127,61 @@ class PostgreSQLRepository(BaseRepository):
         }
 
     async def _rest_find(self, filt: Optional[dict] = None, sort: Optional[list[tuple[str, int]]] = None, skip: int = 0, limit: int = 0) -> list[dict]:
-        url = f"{settings.SUPABASE_URL}/rest/v1/{self.table}"
-        params = {"select": "*"}
-        if limit:
-            params["limit"] = str(limit)
-        if skip:
-            params["offset"] = str(skip)
-        if sort:
-            orders = []
-            for col, order in sort:
-                direction = "desc" if order == -1 else "asc"
-                orders.append(f"{col}.{direction}")
-            params["order"] = ",".join(orders)
-            
-        if filt:
-            for k, v in filt.items():
-                if isinstance(v, dict):
-                    if "$in" in v and v["$in"]:
-                        params[f"{k}"] = f"in.({','.join(str(x) for x in v['$in'])})"
-                    elif "$gte" in v:
-                        params[f"{k}"] = f"gte.{v['$gte']}"
-                    elif "$lte" in v:
-                        params[f"{k}"] = f"lte.{v['$lte']}"
-                    elif "$regex" in v:
-                        params[f"{k}"] = f"ilike.*{v['$regex']}*"
-                elif v is not None:
-                    params[f"{k}"] = f"eq.{v}"
+        try:
+            url = f"{settings.SUPABASE_URL}/rest/v1/{self.table}"
+            select_cols = SERMON_SUMMARY_COLS if self.table == "sermons" else "*"
+            params = {"select": select_cols}
+            if limit:
+                params["limit"] = str(limit)
+            if skip:
+                params["offset"] = str(skip)
+            if sort:
+                orders = []
+                for col, order in sort:
+                    direction = "desc" if order == -1 else "asc"
+                    orders.append(f"{col}.{direction}")
+                params["order"] = ",".join(orders)
+                
+            if filt:
+                for k, v in filt.items():
+                    if k == "$or" and isinstance(v, list):
+                        or_conds = []
+                        for sub in v:
+                            for sk, sv in sub.items():
+                                if isinstance(sv, dict):
+                                    if "$in" in sv and sv["$in"]:
+                                        or_conds.append(f"{sk}.in.({','.join(str(x) for x in sv['$in'])})")
+                                    elif "$regex" in sv:
+                                        or_conds.append(f"{sk}.ilike.*{sv['$regex']}*")
+                                    elif "$ne" in sv:
+                                        or_conds.append(f"{sk}.neq.{sv['$ne']}")
+                                elif sv is not None:
+                                    or_conds.append(f"{sk}.eq.{sv}")
+                        if or_conds:
+                            params["or"] = f"({','.join(or_conds)})"
+                        continue
 
-        async with httpx.AsyncClient(verify=False) as client:
-            res = await client.get(url, headers=self._get_supabase_headers(), params=params, timeout=10.0)
+                    if isinstance(v, dict):
+                        if "$in" in v and v["$in"]:
+                            params[f"{k}"] = f"in.({','.join(str(x) for x in v['$in'])})"
+                        elif "$gte" in v:
+                            params[f"{k}"] = f"gte.{v['$gte']}"
+                        elif "$lte" in v:
+                            params[f"{k}"] = f"lte.{v['$lte']}"
+                        elif "$regex" in v:
+                            params[f"{k}"] = f"ilike.*{v['$regex']}*"
+                        elif "$ne" in v:
+                            params[f"{k}"] = f"neq.{v['$ne']}"
+                    elif v is not None:
+                        params[f"{k}"] = f"eq.{v}"
+
+            client = get_httpx_client()
+            res = await client.get(url, headers=self._get_supabase_headers(), params=params, timeout=3.0)
             res.raise_for_status()
             return res.json()
+        except Exception as e:
+            logger.error(f"Supabase REST query failed for {self.table}: {e}")
+            return []
 
     async def insert(self, doc: dict) -> dict:
         return await self.insert_one(doc)
@@ -122,10 +190,29 @@ class PostgreSQLRepository(BaseRepository):
         doc_copy = dict(doc)
         if "id" not in doc_copy:
             doc_copy["id"] = str(uuid.uuid4())
-        
+
+        # ── Whitelist: only keep columns that actually exist in the target table ──
         if self.table == "sermons":
-            for invalid_col in ("official_pdf_hash", "canonical_text", "canonical_text_hash", "import_engine", "import_report", "raw_transcript", "verification", "current_version", "versions", "refresh_report", "audit_timeline"):
-                doc_copy.pop(invalid_col, None)
+            VALID_SERMON_COLS = {
+                "id", "sermon_code", "title", "speaker", "date", "year", "location",
+                "state", "series", "language", "description", "duration", "tags",
+                "category_ids", "featured", "status", "source", "source_url",
+                "audio_url", "artwork_url", "pdf_english_url", "pdf_telugu_url",
+                "is_archived", "play_count", "download_count", "favorite_count",
+                "verification_status", "transcript_parsed", "transcript_paragraph_count",
+                "transcript_page_count", "transcript_parser_version",
+                "approved_by", "approved_at", "approval_reason",
+                "previous_status", "audio_storage_path", "artwork_storage_path",
+                "pdf_english_storage_path", "pdf_telugu_storage_path",
+                "created_at", "updated_at"
+            }
+            doc_copy = {k: v for k, v in doc_copy.items() if k in VALID_SERMON_COLS}
+        elif self.table == "activity_log":
+            VALID_ACTIVITY_COLS = {
+                "id", "action", "entity_type", "entity_id", "message", "status",
+                "actor_id", "ip", "user_agent", "metadata", "created_at"
+            }
+            doc_copy = {k: v for k, v in doc_copy.items() if k in VALID_ACTIVITY_COLS}
 
         try:
             pool = get_pool()
@@ -146,6 +233,7 @@ class PostgreSQLRepository(BaseRepository):
                 data = res.json()
                 return data[0] if isinstance(data, list) and data else doc_copy
 
+
     async def find_one(self, filt: dict) -> Optional[dict]:
         try:
             pool = get_pool()
@@ -163,7 +251,15 @@ class PostgreSQLRepository(BaseRepository):
         try:
             pool = get_pool()
             where, params, _ = _parse_filter(filt or {})
-            query = f"SELECT * FROM {self.table} WHERE {where}"
+            
+            select_cols = "*"
+            if self.table == "sermons":
+                if projection and projection.get("transcripts") == 1:
+                    select_cols = "*"
+                elif not projection or projection.get("transcripts") == 0:
+                    select_cols = SERMON_SUMMARY_COLS
+
+            query = f"SELECT {select_cols} FROM {self.table} WHERE {where}"
             if sort:
                 sort_clauses = []
                 for col, order in sort:
@@ -189,9 +285,43 @@ class PostgreSQLRepository(BaseRepository):
             async with pool.acquire() as conn:
                 return await conn.fetchval(query, *params)
         except Exception as e:
-            logger.warning(f"PostgreSQL asyncpg failed on count ({e}), falling back to Supabase REST")
-            results = await self._rest_find(filt=filt)
-            return len(results)
+            logger.warning(f"PostgreSQL asyncpg failed on count ({e}), falling back to Supabase REST count")
+            try:
+                url = f"{settings.SUPABASE_URL}/rest/v1/{self.table}"
+                headers = {
+                    **self._get_supabase_headers(),
+                    "Prefer": "count=exact"
+                }
+                params_rest = {"select": "id", "limit": "1"}
+                if filt:
+                    for k, v in filt.items():
+                        if k.startswith("$"):
+                            continue
+                        if isinstance(v, dict):
+                            if "$ne" in v:
+                                params_rest[k] = f"neq.{v['$ne']}"
+                            elif "$in" in v and v["$in"]:
+                                params_rest[k] = f"in.({','.join(str(x) for x in v['$in'])})"
+                            elif "$gte" in v:
+                                params_rest[k] = f"gte.{v['$gte']}"
+                            elif "$lte" in v:
+                                params_rest[k] = f"lte.{v['$lte']}"
+                        elif v is not None:
+                            params_rest[k] = f"eq.{v}"
+                async with httpx.AsyncClient(verify=False) as client:
+                    res = await client.get(url, headers=headers, params=params_rest, timeout=5.0)
+                    if res.status_code < 400:
+                        cr = res.headers.get("content-range", "")
+                        # content-range: 0-0/255 → extract total after '/'
+                        if "/" in cr:
+                            total_str = cr.split("/")[-1]
+                            if total_str != "*":
+                                return int(total_str)
+                    # Last resort: count returned rows
+                    return len(res.json()) if res.status_code < 400 else 0
+            except Exception as e2:
+                logger.error(f"Supabase REST count also failed ({e2})")
+                return 0
 
     async def update_one(self, filt: dict, patch: dict) -> int:
         update_doc = patch.get("$set", patch)
@@ -216,8 +346,23 @@ class PostgreSQLRepository(BaseRepository):
             if "id" in filt:
                 url += f"?id=eq.{filt['id']}"
             async with httpx.AsyncClient(verify=False) as client:
-                res = await client.patch(url, headers=headers, json=update_doc, timeout=10.0)
+                import json
+                json_data = json.loads(json.dumps(update_doc, default=str))
+                res = await client.patch(url, headers=headers, json=json_data, timeout=10.0)
                 return 1 if res.status_code < 400 else 0
+
+    async def raw_update_one(self, filt: dict, patch: dict, upsert: bool = False) -> int:
+        res = await self.update_one(filt, patch)
+        if res == 0 and upsert:
+            update_doc = patch.get("$set", patch)
+            combined = {**filt, **update_doc}
+            clean_doc = {k: v for k, v in combined.items() if not k.startswith("$")}
+            try:
+                await self.insert(clean_doc)
+                return 1
+            except Exception as e:
+                logger.warning(f"PostgreSQL raw_update_one upsert fallback failed ({e})")
+        return res
 
     async def update_many(self, filt: dict, patch: dict) -> int:
         update_doc = patch.get("$set", patch)
@@ -249,12 +394,7 @@ class PostgreSQLRepository(BaseRepository):
                 return int(status.split()[-1])
         except Exception as e:
             logger.warning(f"PostgreSQL asyncpg failed on delete_one ({e}), falling back to Supabase REST")
-            url = f"{settings.SUPABASE_URL}/rest/v1/{self.table}"
-            if "id" in filt:
-                url += f"?id=eq.{filt['id']}"
-            async with httpx.AsyncClient(verify=False) as client:
-                res = await client.delete(url, headers=self._get_supabase_headers(), timeout=10.0)
-                return 1 if res.status_code < 400 else 0
+            return 0
 
     async def delete_many(self, filt: dict) -> int:
         try:
@@ -267,31 +407,3 @@ class PostgreSQLRepository(BaseRepository):
         except Exception as e:
             logger.warning(f"PostgreSQL asyncpg failed on delete_many ({e}), falling back to Supabase REST")
             return 0
-
-    async def upsert_one(self, filt: dict, doc: dict, unique_key: str = "id") -> int:
-        doc_copy = dict(doc)
-        if "id" not in doc_copy:
-            doc_copy["id"] = str(uuid.uuid4())
-        try:
-            pool = get_pool()
-            keys = list(doc_copy.keys())
-            insert_vals = [_clean_val(k, v) for k, v in doc_copy.items()]
-            insert_keys_str = ", ".join(keys)
-            insert_placeholders = ", ".join(f"${i+1}" for i in range(len(keys)))
-            update_clauses = [f"{k} = EXCLUDED.{k}" for k in keys if k != unique_key]
-            update_str = ", ".join(update_clauses)
-            query = f"INSERT INTO {self.table} ({insert_keys_str}) VALUES ({insert_placeholders}) ON CONFLICT ({unique_key}) DO UPDATE SET {update_str}"
-            async with pool.acquire() as conn:
-                await conn.execute(query, *insert_vals)
-                return 1
-        except Exception as e:
-            logger.warning(f"PostgreSQL asyncpg failed on upsert_one ({e}), falling back to Supabase REST")
-            url = f"{settings.SUPABASE_URL}/rest/v1/{self.table}"
-            headers = self._get_supabase_headers()
-            headers["Prefer"] = "resolution=merge-duplicates"
-            async with httpx.AsyncClient(verify=False) as client:
-                await client.post(url, headers=headers, json=doc_copy, timeout=10.0)
-                return 1
-
-    async def aggregate(self, pipeline: list) -> list[dict]:
-        return []

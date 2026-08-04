@@ -92,18 +92,20 @@ async def _project_sermon(s: dict) -> dict:
     For each media field, resolve using storage_path (preferred) or legacy URL.
     Signed URLs are generated fresh on every call — never stored in DB.
     """
-    audio_url = await _resolve_media_url(
-        s.get("audio_storage_path"), s.get("audio_url")
+    import asyncio
+    pdf_english_path = s.get("english_pdf_storage_path") or s.get("pdf_english_storage_path")
+    pdf_english_legacy = s.get("pdf_english_url") or s.get("english_pdf_url")
+    pdf_telugu_path = s.get("telugu_pdf_storage_path") or s.get("pdf_telugu_storage_path")
+    pdf_telugu_legacy = s.get("pdf_telugu_url") or s.get("telugu_pdf_url")
+
+    audio_url, artwork_url, pdf_english_url, pdf_telugu_url = await asyncio.gather(
+        _resolve_media_url(s.get("audio_storage_path"), s.get("audio_url")),
+        _resolve_media_url(s.get("artwork_storage_path"), s.get("artwork_url")),
+        _resolve_media_url(pdf_english_path, pdf_english_legacy),
+        _resolve_media_url(pdf_telugu_path, pdf_telugu_legacy),
     )
-    artwork_url = await _resolve_media_url(
-        s.get("artwork_storage_path"), s.get("artwork_url")
-    )
-    pdf_english_url = await _resolve_media_url(
-        s.get("pdf_english_storage_path"), s.get("pdf_english_url")
-    )
-    pdf_telugu_url = await _resolve_media_url(
-        s.get("pdf_telugu_storage_path"), s.get("pdf_telugu_url")
-    )
+
+    code_str = s.get("sermon_code") or s.get("id") or "sermon"
 
     return {
         "id": s.get("id"),
@@ -125,11 +127,27 @@ async def _project_sermon(s: dict) -> dict:
         "audio_url": audio_url,
         "playable": bool(audio_url),
         "artwork_url": artwork_url,
+
+        # Official PDF Resources (Enterprise Metadata)
+        "english_pdf_url": pdf_english_url,
+        "english_pdf_hash": s.get("english_pdf_hash"),
+        "english_pdf_size": s.get("english_pdf_size"),
+        "english_pdf_filename": s.get("english_pdf_filename") or f"{code_str}_English.pdf",
+        "english_pdf_page_count": s.get("english_pdf_page_count") or 0,
+
+        "telugu_pdf_url": pdf_telugu_url,
+        "telugu_pdf_hash": s.get("telugu_pdf_hash"),
+        "telugu_pdf_size": s.get("telugu_pdf_size"),
+        "telugu_pdf_filename": s.get("telugu_pdf_filename") or f"{code_str}_Telugu.pdf",
+        "telugu_pdf_page_count": s.get("telugu_pdf_page_count") or 0,
+
+        # Backward compatibility aliases
         "pdf_english_url": pdf_english_url,
         "pdf_telugu_url": pdf_telugu_url,
+
         "canonical_text": s.get("canonical_text") or s.get("transcript"),
         "canonical_text_hash": s.get("canonical_text_hash"),
-        "official_pdf_hash": s.get("official_pdf_hash"),
+        "official_pdf_hash": s.get("official_pdf_hash") or s.get("english_pdf_hash") or s.get("telugu_pdf_hash"),
         "import_engine": s.get("import_engine"),
         "import_report": s.get("import_report"),
         "transcripts": s.get("transcripts", []) or ([{"language": s.get("language") or "English", "text": s.get("canonical_text") or s.get("transcript"), "paragraphs": [{"text": p.strip(), "paragraph_number": i + 1} for i, p in enumerate(((s.get("canonical_text") or s.get("transcript")) or "").split("\n\n")) if p.strip()]}] if (s.get("canonical_text") or s.get("transcript")) else []),
@@ -179,9 +197,19 @@ async def list_sermons(
 ):
     filt: dict = {"status": "published", "is_archived": {"$ne": True}}
     if q and isinstance(q, str):
-        filt["title"] = {"$regex": q, "$options": "i"}
+        filt["$or"] = [
+            {"title": {"$regex": q, "$options": "i"}},
+            {"sermon_code": {"$regex": q, "$options": "i"}},
+            {"speaker": {"$regex": q, "$options": "i"}},
+            {"series": {"$regex": q, "$options": "i"}},
+        ]
     if language:
-        filt["language"] = language
+        if language.lower() == "en":
+            filt["language"] = {"$in": ["en", "English", "english", "EN"]}
+        elif language.lower() == "te":
+            filt["language"] = {"$in": ["te", "Telugu", "telugu", "TE"]}
+        else:
+            filt["language"] = language
     if year:
         filt["year"] = year
     
@@ -299,7 +327,12 @@ async def list_categories():
 async def get_mobile_notifications(language: Optional[str] = None):
     filt = {"status": "published"}
     if language:
-        filt["$or"] = [{"audience": "all"}, {"audience": "language", "language": {"$regex": f"^{language}$", "$options": "i"}}]
+        if language.lower() == "en":
+            filt["$or"] = [{"audience": "all"}, {"audience": "language", "language": {"$regex": "^(en|english)$", "$options": "i"}}]
+        elif language.lower() == "te":
+            filt["$or"] = [{"audience": "all"}, {"audience": "language", "language": {"$regex": "^(te|telugu)$", "$options": "i"}}]
+        else:
+            filt["$or"] = [{"audience": "all"}, {"audience": "language", "language": {"$regex": f"^{language}$", "$options": "i"}}]
         
     items = await notifications_repo().find(filt, sort=[("delivered_at", -1)], limit=50)
     return {"items": clean_list(items), "total": len(items)}
@@ -321,15 +354,22 @@ async def home(language: Optional[str] = None):
     # Build language filter for sermons (case-insensitive if set)
     lang_filt = {}
     if language:
-        lang_filt["language"] = {"$regex": f"^{language}$", "$options": "i"}
+        if language.lower() == "en":
+            lang_filt["language"] = {"$regex": "^(en|english)$", "$options": "i"}
+        elif language.lower() == "te":
+            lang_filt["language"] = {"$regex": "^(te|telugu)$", "$options": "i"}
+        else:
+            lang_filt["language"] = {"$regex": f"^{language}$", "$options": "i"}
 
     featured_ids = home.get("featured_sermon_ids", []) or []
     featured = []
-    for sid in featured_ids:
-        filt = {"id": sid, "status": "published", **lang_filt}
-        s = await sermons.find_one(filt)
-        if s:
-            featured.append(await _project_sermon(s))
+    if featured_ids:
+        filt = {"id": {"$in": featured_ids}, "status": "published", **lang_filt}
+        featured_docs = await sermons.find(filt)
+        doc_map = {d.get("id"): d for d in featured_docs if d.get("id")}
+        for sid in featured_ids:
+            if sid in doc_map:
+                featured.append(await _project_sermon(doc_map[sid]))
 
     recent = []
     if home.get("show_recently_added", True):
@@ -342,18 +382,17 @@ async def home(language: Optional[str] = None):
         for s in rows:
             recent.append(await _project_sermon(s))
 
-    # Meetings are ALWAYS shown regardless of language (strictly non-expired)
+    # Meetings are ALWAYS shown regardless of language
     upcoming = []
     if home.get("show_upcoming_meetings", True):
         selected = home.get("upcoming_meeting_ids", []) or []
         if selected:
+            m_docs = await meetings.find({"id": {"$in": selected}})
+            m_map = {m.get("id"): m for m in m_docs if m.get("id")}
             for mid in selected:
-                m = await meetings.find_one({"id": mid})
-                if m and not is_meeting_expired(m):
-                    upcoming.append(await _project_meeting(m))
-        
-        # Fallback to query if selected meetings are empty or all expired
-        if not upcoming:
+                if mid in m_map and not is_meeting_expired(m_map[mid]):
+                    upcoming.append(await _project_meeting(m_map[mid]))
+        else:
             rows = await meetings.find(
                 {"status": {"$in": ["upcoming", "live"]}, "is_archived": {"$ne": True}},
                 sort=[("start_date", 1)],
@@ -366,10 +405,13 @@ async def home(language: Optional[str] = None):
                         break
 
     cats = []
-    for cid in home.get("category_ids", []) or []:
-        c = await categories.find_one({"id": cid})
-        if c:
-            cats.append(c)
+    cat_ids = home.get("category_ids", []) or []
+    if cat_ids:
+        c_docs = await categories.find({"id": {"$in": cat_ids}})
+        c_map = {c.get("id"): c for c in c_docs if c.get("id")}
+        for cid in cat_ids:
+            if cid in c_map:
+                cats.append(c_map[cid])
 
     banner_sermon_doc = await sermons.find_one({"id": home.get("featured_banner_sermon_id")}) if home.get("featured_banner_sermon_id") else None
     banner_meeting_doc = await meetings.find_one({"id": home.get("featured_banner_meeting_id")}) if home.get("featured_banner_meeting_id") else None
