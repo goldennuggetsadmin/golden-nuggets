@@ -50,6 +50,18 @@ export interface Testimony {
   art_thumb_url?: string | null;
   audio_url?: string | null;
   audio_bytes?: number;
+  pdf_english_url?: string | null;
+  pdf_telugu_url?: string | null;
+  english_pdf_url?: string | null;
+  english_pdf_hash?: string | null;
+  english_pdf_size?: number | null;
+  english_pdf_filename?: string | null;
+  english_pdf_page_count?: number | null;
+  telugu_pdf_url?: string | null;
+  telugu_pdf_hash?: string | null;
+  telugu_pdf_size?: number | null;
+  telugu_pdf_filename?: string | null;
+  telugu_pdf_page_count?: number | null;
   favorite: boolean;
   downloaded: boolean;
   progress: number;
@@ -147,6 +159,16 @@ async function j<T>(path: string, init: RequestInit = {}, retries = 1): Promise<
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
+// ------------------------------ language code → DB value mapping
+// The database stores full names ("English", "Telugu") but the app uses codes ("en", "te").
+// Always send the full name to the backend so queries match DB records correctly.
+function _toLangParam(code?: string): string | undefined {
+  if (!code) return undefined;
+  if (code === "en") return "English";
+  if (code === "te") return "Telugu";
+  return code; // pass-through for anything else
+}
+
 // ------------------------------ production API endpoints
 export const api = {
   base: BASE,
@@ -165,7 +187,8 @@ export const api = {
 
   home: async (language?: string): Promise<HomeFeed> => {
     const cacheKey = `home_${language || "default"}`;
-    const raw = await j<BackendHomePayload>(`/home${language ? `?language=${language}` : ""}`);
+    const langParam = _toLangParam(language);
+    const raw = await j<BackendHomePayload>(`/home${langParam ? `?language=${langParam}` : ""}`);
     const adapted = await adaptHomeFeed(raw);
     cacheStore.set(cacheKey, adapted);
     return adapted;
@@ -200,14 +223,60 @@ export const api = {
   },
 
   search: async (q: string, category_id?: string, language?: string): Promise<Testimony[]> => {
+    const langKey = language || "en";
+    const cacheKey = `search_${q}_${category_id || ""}_${langKey}`;
+    const masterCacheKey = `search_master_${langKey}`;
+
     const qs = new URLSearchParams();
     if (q) qs.set("q", q);
     if (category_id) qs.set("category_id", category_id);
-    if (language) qs.set("language", language);
-    const res = await j<{ items: BackendSermon[]; total: number }>(`/sermons?${qs}`);
-    const favs = await userStore.getFavorites();
-    const progs = await userStore.getProgressMap();
-    return Promise.all((res.items || []).map((s) => adaptSermon(s, favs, progs)));
+    // Always send full DB name so the backend matches correctly ("English"/"Telugu")
+    const langParam = _toLangParam(language);
+    if (langParam) qs.set("language", langParam);
+
+    try {
+      const res = await j<{ items: BackendSermon[]; total: number }>(`/sermons?${qs}`);
+      const favs = await userStore.getFavorites();
+      const progs = await userStore.getProgressMap();
+      const adapted = await Promise.all((res.items || []).map((s) => adaptSermon(s, favs, progs)));
+      if (adapted.length > 0) {
+        if (!q && !category_id) {
+          cacheStore.set(masterCacheKey, adapted);
+        }
+        cacheStore.set(cacheKey, adapted);
+      }
+      return adapted;
+    } catch (e) {
+      console.warn(`[api.search] Network request failed for query="${q}", lang="${langKey}". Attempting cache recovery.`, e);
+      const cached = await cacheStore.get<Testimony[]>(cacheKey);
+      if (cached && cached.length > 0) return cached;
+
+      const masterCached = await cacheStore.get<Testimony[]>(masterCacheKey);
+      if (masterCached && masterCached.length > 0) {
+        if (!q) return masterCached;
+        const needle = q.toLowerCase();
+        return masterCached.filter(
+          (t) => (t.title && t.title.toLowerCase().includes(needle)) ||
+                 (t.speaker && t.speaker.toLowerCase().includes(needle)) ||
+                 (t.category && t.category.toLowerCase().includes(needle))
+        );
+      }
+
+      const allCached = (await cacheStore.get<Testimony[]>("sermons_all")) || (await cacheStore.get<Testimony[]>("sermons_{}"));
+      if (allCached && allCached.length > 0) {
+        const langFiltered = allCached.filter((t) => t.language === langKey || !t.language);
+        if (langFiltered.length > 0) {
+          if (!q) return langFiltered;
+          const needle = q.toLowerCase();
+          return langFiltered.filter(
+            (t) => (t.title && t.title.toLowerCase().includes(needle)) ||
+                   (t.speaker && t.speaker.toLowerCase().includes(needle))
+          );
+        }
+      }
+
+      return [];
+    }
   },
 
   categories: async (): Promise<Category[]> => {
