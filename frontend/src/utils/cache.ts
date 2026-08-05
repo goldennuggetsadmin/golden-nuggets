@@ -4,7 +4,8 @@
  */
 import { storage } from "./storage";
 
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+// Cache TTL: 10 seconds in __DEV__ mode (instant visibility of local admin uploads), 5 minutes in Production
+const CACHE_TTL_MS = __DEV__ ? 10 * 1000 : 5 * 60 * 1000;
 
 interface CacheEntry<T> {
   timestamp: number;
