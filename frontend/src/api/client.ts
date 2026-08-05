@@ -17,9 +17,21 @@ import {
 
 import { Platform } from "react-native";
 
-const PRODUCTION_BASE = "https://web-production-1fc9d.up.railway.app/api/v1/mobile";
+const PRODUCTION_BASE = process.env.EXPO_PUBLIC_PROD_BACKEND_URL || "https://web-production-1fc9d.up.railway.app/api/v1/mobile";
 const LOCAL_BASE = Platform.OS === "android" ? "http://10.0.2.2:8000/api/v1/mobile" : "http://127.0.0.1:8000/api/v1/mobile";
-const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || (__DEV__ ? LOCAL_BASE : PRODUCTION_BASE);
+
+// Automatic Environment Selection:
+// - __DEV__ = true (Xcode Debug, Android Emulator Debug, Expo Go) -> Always defaults to LOCAL_BASE (http://127.0.0.1:8000)
+// - __DEV__ = false (Release Build, Standalone APK, App Store Release) -> Always defaults to PRODUCTION_BASE (Railway)
+const BASE = __DEV__
+  ? (process.env.EXPO_PUBLIC_DEV_BACKEND_URL || LOCAL_BASE)
+  : (process.env.EXPO_PUBLIC_BACKEND_URL || PRODUCTION_BASE);
+
+if (__DEV__) {
+  console.log(`[API Client] 🛠️ Running in __DEV__ mode (Xcode/Expo). Base URL: "${BASE}"`);
+} else {
+  console.log(`[API Client] 🚀 Running in Production mode. Base URL: "${BASE}"`);
+}
 
 // ------------------------------ types
 export interface TranscriptParagraph {
