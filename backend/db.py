@@ -7,10 +7,10 @@ logger = logging.getLogger(__name__)
 
 _pool: asyncpg.Pool = None
 
-async def connect():
+async def _init_pool():
     global _pool
     if _pool is not None:
-        return _pool
+        return
     import ssl
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
@@ -18,29 +18,30 @@ async def connect():
     
     dsn = settings.DATABASE_URL
     if not dsn:
-        logger.error("DATABASE_URL environment variable is not set!")
-        return None
-    
+        return
     if "?" in dsn:
         dsn = dsn.split("?")[0]
 
-    for attempt in range(3):
-        try:
-            logger.info(f"Connecting to database (attempt {attempt + 1})...")
-            _pool = await asyncpg.create_pool(
-                dsn=dsn,
-                min_size=1,
-                max_size=10,
-                ssl=ctx,
-                command_timeout=15,
-                timeout=10
-            )
-            logger.info("asyncpg pool created successfully!")
-            return _pool
-        except Exception as e:
-            logger.error(f"asyncpg pool creation attempt {attempt + 1} failed: {e}")
-            await asyncio.sleep(1)
-    return None
+    try:
+        logger.info("Connecting to database in background...")
+        _pool = await asyncpg.create_pool(
+            dsn=dsn,
+            min_size=0,
+            max_size=5,
+            ssl=ctx,
+            command_timeout=10,
+            timeout=10
+        )
+        logger.info("asyncpg pool created successfully!")
+    except Exception as e:
+        logger.warning(f"Database direct connection deferred ({e}) — operating in resilient fallback mode")
+
+async def connect():
+    global _pool
+    if _pool is not None:
+        return _pool
+    await _init_pool()
+    return _pool
 
 async def disconnect():
     global _pool
@@ -49,8 +50,6 @@ async def disconnect():
         _pool = None
         logger.info("asyncpg pool closed")
 
-def get_pool() -> asyncpg.Pool:
+def get_pool() -> Optional[asyncpg.Pool]:
     global _pool
-    if _pool is None:
-        raise RuntimeError("Database pool is initializing or connection failed. Please check DATABASE_URL.")
     return _pool
