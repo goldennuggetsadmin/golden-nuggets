@@ -234,10 +234,17 @@ async def list_sermons(
 
     # Apply Keyset / Cursor Pagination filtering if cursor provided
     cursor_c, cursor_i = _decode_cursor(cursor) if cursor else (None, None)
+    if cursor_c:
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(cursor_c.replace("Z", "+00:00"))
+            filt["created_at"] = {"$lt": dt}
+        except Exception:
+            pass
 
     # For paginated requests (eff_page_size <= 100), fetch limit = eff_page_size + 1 to check has_more
     if eff_page_size <= 100 and not requested_series:
-        skip_val = 0 if cursor else max(0, (page - 1) * eff_page_size)
+        skip_val = 0 if cursor_c else max(0, (page - 1) * eff_page_size)
         raw_items = await repo.find(
             filt,
             sort=[(sort, -1 if order == "desc" else 1)],

@@ -83,11 +83,24 @@ def _parse_filter(filt: dict, param_start: int = 1) -> tuple[str, list, int]:
                 params.append(pattern)
                 idx += 1
             elif "$ne" in v:
-                # IS DISTINCT FROM handles NULLs correctly:
-                # NULL IS DISTINCT FROM TRUE → TRUE (row included)
-                # FALSE IS DISTINCT FROM TRUE → TRUE (row included)
                 clauses.append(f"{k} IS DISTINCT FROM ${idx}")
                 params.append(v["$ne"])
+                idx += 1
+            elif "$lt" in v:
+                clauses.append(f"{k} < ${idx}")
+                params.append(v["$lt"])
+                idx += 1
+            elif "$lte" in v:
+                clauses.append(f"{k} <= ${idx}")
+                params.append(v["$lte"])
+                idx += 1
+            elif "$gt" in v:
+                clauses.append(f"{k} > ${idx}")
+                params.append(v["$gt"])
+                idx += 1
+            elif "$gte" in v:
+                clauses.append(f"{k} >= ${idx}")
+                params.append(v["$gte"])
                 idx += 1
         elif v is None:
             clauses.append(f"{k} IS NULL")
@@ -178,6 +191,10 @@ class PostgreSQLRepository(BaseRepository):
                         if "$in" in v and v["$in"]:
                             quoted = ",".join(f'"{x}"' for x in v["$in"])
                             base_params[f"{k}"] = f"in.({quoted})"
+                        elif "$lt" in v:
+                            base_params[f"{k}"] = f"lt.{v['$lt']}"
+                        elif "$gt" in v:
+                            base_params[f"{k}"] = f"gt.{v['$gt']}"
                         elif "$gte" in v:
                             base_params[f"{k}"] = f"gte.{v['$gte']}"
                         elif "$lte" in v:

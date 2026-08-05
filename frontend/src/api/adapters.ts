@@ -39,6 +39,11 @@ export interface BackendSermon {
   telugu_pdf_size?: number | null;
   telugu_pdf_filename?: string | null;
   telugu_pdf_page_count?: number | null;
+  audio_url?: string | null;
+  artwork_url?: string | null;
+  art_url?: string | null;
+  audio_storage_path?: string | null;
+  artwork_storage_path?: string | null;
   transcripts?: BackendTranscriptParagraph[];
   transcript_parsed?: boolean;
   transcript_page_count?: number;
