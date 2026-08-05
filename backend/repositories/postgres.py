@@ -194,27 +194,28 @@ class PostgreSQLRepository(BaseRepository):
             current_offset = skip
             max_to_fetch = limit if limit > 0 else 50000
 
-            while len(all_results) < max_to_fetch:
-                batch_limit = min(1000, max_to_fetch - len(all_results))
-                params = dict(base_params)
+            async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
+                while len(all_results) < max_to_fetch:
+                    batch_limit = min(1000, max_to_fetch - len(all_results))
+                    params = dict(base_params)
 
-                req_headers = self._get_supabase_headers()
-                req_headers["Range-Unit"] = "items"
-                req_headers["Range"] = f"{current_offset}-{current_offset + batch_limit - 1}"
+                    req_headers = self._get_supabase_headers()
+                    req_headers["Range-Unit"] = "items"
+                    req_headers["Range"] = f"{current_offset}-{current_offset + batch_limit - 1}"
 
-                res = await client.get(url, headers=req_headers, params=params, timeout=5.0)
-                res.raise_for_status()
-                batch = res.json()
-                if not batch or not isinstance(batch, list):
-                    break
-                all_results.extend(batch)
-                if len(batch) < 1000:
-                    break
-                current_offset += len(batch)
+                    res = await client.get(url, headers=req_headers, params=params, timeout=30.0)
+                    res.raise_for_status()
+                    batch = res.json()
+                    if not batch or not isinstance(batch, list):
+                        break
+                    all_results.extend(batch)
+                    if len(batch) < 1000:
+                        break
+                    current_offset += len(batch)
 
             return all_results
         except Exception as e:
-            logger.error(f"Supabase REST query failed for {self.table}: {e}")
+            logger.exception(f"Supabase REST query failed for {self.table}: {e}")
             return []
 
     async def insert(self, doc: dict) -> dict:
