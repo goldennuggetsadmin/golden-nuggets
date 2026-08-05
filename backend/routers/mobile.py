@@ -34,55 +34,14 @@ def _is_admin_media_ref(value: str) -> bool:
     return "/api/v1/admin/media/file/" in value
 
 
-async def _resolve_media_url(
+def _resolve_media_url(
     storage_path: Optional[str],
-    legacy_url: Optional[str],
+    legacy_url: Optional[str]
 ) -> Optional[str]:
-    """Resolve a media field to a usable URL for the mobile app.
-    
-    Architecture:
-    1. If storage_path exists → generate a fresh signed URL (Supabase media)
-    2. If legacy_url is an external URL → pass through as-is (imported media)
-    3. If legacy_url is an admin media ref → look up storage_path from media_assets → signed URL
-    4. Otherwise → None
-    
-    Signed URLs are NEVER stored. They are generated fresh on every request.
-    """
-    provider = get_storage_provider()
-    import asyncio
-    ttl = settings.MEDIA_URL_TTL
-
-    # Priority 1: storage_path → fresh signed URL
-    if storage_path:
-        try:
-            url = await asyncio.to_thread(provider.create_signed_url, storage_path, ttl)
-            if url:
-                return url
-        except Exception as e:
-            logger.warning(f"Failed to generate signed URL for {storage_path}: {e}")
-
-    # Priority 2: legacy URL handling
-    if not legacy_url:
-        return None
-
-    # External permanent URL (e.g. branham.org) → pass through
-    if _is_external_url(legacy_url) and not _is_admin_media_ref(legacy_url):
+    if legacy_url and not _is_admin_media_ref(legacy_url):
         return legacy_url
-
-    # Admin media reference → resolve from media_assets table
-    if _is_admin_media_ref(legacy_url):
-        try:
-            media_id = legacy_url.split("/api/v1/admin/media/file/")[-1]
-            rec = await media_repo().find_one({"id": media_id, "is_deleted": False})
-            if rec and rec.get("storage_path"):
-                url = await asyncio.to_thread(provider.create_signed_url, rec["storage_path"], ttl)
-                if url:
-                    return url
-            # Fallback: serve via mobile proxy endpoint
-            return f"/api/v1/mobile/media/file/{media_id}"
-        except Exception as e:
-            logger.warning(f"Failed to resolve media ref {legacy_url}: {e}")
-
+    if storage_path:
+        return get_storage_provider().get_public_url(storage_path)
     return legacy_url
 
 
@@ -97,7 +56,6 @@ def _build_transcripts(s: dict) -> list:
     if isinstance(raw, list) and len(raw) > 0:
         return raw
 
-    # Fallback if DB transcripts JSONB is empty but transcript/canonical_text text column exists
     text_val = s.get("transcript") or s.get("canonical_text")
     if text_val and isinstance(text_val, str) and text_val.strip():
         lang = s.get("language") or "English"
@@ -115,27 +73,20 @@ def _build_transcripts(s: dict) -> list:
     return []
 
 
-async def _project_sermon(s: dict) -> dict:
-    """Shape a sermon for mobile consumption.
-    
-    For each media field, resolve using storage_path (preferred) or legacy URL.
-    Signed URLs are generated fresh on every call — never stored in DB.
-    """
-    import asyncio
+def _project_sermon(s: dict, include_transcripts: bool = False) -> dict:
+    """Shape a sermon for mobile consumption synchronously."""
     pdf_english_path = s.get("english_pdf_storage_path") or s.get("pdf_english_storage_path")
     pdf_english_legacy = s.get("pdf_english_url") or s.get("english_pdf_url")
     pdf_telugu_path = s.get("telugu_pdf_storage_path") or s.get("pdf_telugu_storage_path")
     pdf_telugu_legacy = s.get("pdf_telugu_url") or s.get("telugu_pdf_url")
 
-    audio_url, artwork_url, pdf_english_url, pdf_telugu_url = await asyncio.gather(
-        _resolve_media_url(s.get("audio_storage_path"), s.get("audio_url")),
-        _resolve_media_url(s.get("artwork_storage_path"), s.get("artwork_url")),
-        _resolve_media_url(pdf_english_path, pdf_english_legacy),
-        _resolve_media_url(pdf_telugu_path, pdf_telugu_legacy),
-    )
+    audio_url = _resolve_media_url(s.get("audio_storage_path"), s.get("audio_url"))
+    artwork_url = _resolve_media_url(s.get("artwork_storage_path"), s.get("artwork_url"))
+    pdf_english_url = _resolve_media_url(pdf_english_path, pdf_english_legacy)
+    pdf_telugu_url = _resolve_media_url(pdf_telugu_path, pdf_telugu_legacy)
 
     code_str = s.get("sermon_code") or s.get("id") or "sermon"
-    built_transcripts = _build_transcripts(s)
+    built_transcripts = _build_transcripts(s) if include_transcripts else []
 
     return {
         "id": s.get("id"),
@@ -264,9 +215,7 @@ async def list_sermons(
     start_idx = max(0, (page - 1) * page_size)
     paginated_items = items[start_idx : start_idx + page_size]
 
-    projected_items = []
-    for s in paginated_items:
-        projected_items.append(await _project_sermon(s))
+    projected_items = [_project_sermon(s) for s in paginated_items]
     return {"items": projected_items, "total": total, "page": page, "page_size": page_size}
 
 
@@ -339,7 +288,7 @@ async def get_sermon(sermon_id: str):
 
     if not doc:
         raise HTTPException(status_code=404, detail="Not found")
-    return await _project_sermon(doc)
+    return await _project_sermon(doc, include_transcripts=True)
 
 
 @router.get("/media/file/{media_id}")

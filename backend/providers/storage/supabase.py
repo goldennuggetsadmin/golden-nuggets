@@ -55,17 +55,10 @@ class SupabaseStorageProvider(StorageProvider):
             return None
 
     def create_signed_url(self, path: str, expires_in: int = 3600) -> Optional[str]:
-        """Generate a time-limited signed URL. Used by mobile API on every request."""
-        if not self.client:
+        """Generate media URL for read-only assets using instant public storage URL."""
+        if not path:
             return None
-        try:
-            result = self.client.storage.from_(self.bucket).create_signed_url(path, expires_in)
-            if isinstance(result, dict):
-                return result.get("signedURL") or result.get("signed_url")
-            return None
-        except Exception:
-            # Fallback to public URL if signing fails
-            return self.get_public_url(path)
+        return self.get_public_url(path)
 
     def stream(self, path: str) -> Tuple[bytes, str]:
         data = self.client.storage.from_(self.bucket).download(path)
