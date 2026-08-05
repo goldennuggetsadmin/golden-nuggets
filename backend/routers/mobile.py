@@ -5,6 +5,7 @@ endpoints; analytics event can carry a device_id for aggregation.
 """
 from datetime import datetime, timezone
 from typing import Optional
+import asyncio
 import uuid
 
 from fastapi import APIRouter, HTTPException, Query, Response
@@ -139,8 +140,8 @@ def _project_sermon(s: dict, include_transcripts: bool = False) -> dict:
     }
 
 
-async def _project_meeting(m: dict) -> dict:
-    banner_url = await _resolve_media_url(
+def _project_meeting(m: dict) -> dict:
+    banner_url = _resolve_media_url(
         m.get("banner_storage_path"), m.get("banner_url")
     )
     return {
@@ -288,7 +289,7 @@ async def get_sermon(sermon_id: str):
 
     if not doc:
         raise HTTPException(status_code=404, detail="Not found")
-    return await _project_sermon(doc, include_transcripts=True)
+    return _project_sermon(doc, include_transcripts=True)
 
 
 @router.get("/media/file/{media_id}")
@@ -323,7 +324,7 @@ async def list_meetings(status: Optional[str] = None):
     for m in items:
         if (status == "upcoming" or not status) and is_meeting_expired(m):
             continue
-        projected.append(await _project_meeting(m))
+        projected.append(_project_meeting(m))
     return {"items": projected, "total": len(projected)}
 
 
@@ -332,7 +333,7 @@ async def get_meeting(meeting_id: str):
     doc = await meetings_repo().find_one({"id": meeting_id})
     if not doc or doc.get("is_archived"):
         raise HTTPException(status_code=404, detail="Not found")
-    return await _project_meeting(doc)
+    return _project_meeting(doc)
 
 
 # ---------- Categories ----------
@@ -389,7 +390,7 @@ async def home(language: Optional[str] = None):
         doc_map = {d.get("id"): d for d in featured_docs if d.get("id")}
         for sid in featured_ids:
             if sid in doc_map:
-                featured.append(await _project_sermon(doc_map[sid]))
+                featured.append(_project_sermon(doc_map[sid]))
 
     recent = []
     if home.get("show_recently_added", True):
@@ -400,7 +401,7 @@ async def home(language: Optional[str] = None):
             limit=home.get("recently_added_count") or 6,
         )
         for s in rows:
-            recent.append(await _project_sermon(s))
+            recent.append(_project_sermon(s))
 
     # Meetings are ALWAYS shown regardless of language
     upcoming = []
@@ -411,7 +412,7 @@ async def home(language: Optional[str] = None):
             m_map = {m.get("id"): m for m in m_docs if m.get("id")}
             for mid in selected:
                 if mid in m_map and not is_meeting_expired(m_map[mid]):
-                    upcoming.append(await _project_meeting(m_map[mid]))
+                    upcoming.append(_project_meeting(m_map[mid]))
         else:
             rows = await meetings.find(
                 {"status": {"$in": ["upcoming", "live"]}, "is_archived": {"$ne": True}},
@@ -420,7 +421,7 @@ async def home(language: Optional[str] = None):
             )
             for m in rows:
                 if not is_meeting_expired(m):
-                    upcoming.append(await _project_meeting(m))
+                    upcoming.append(_project_meeting(m))
                     if len(upcoming) >= (home.get("upcoming_meetings_count") or 5):
                         break
 
@@ -435,7 +436,7 @@ async def home(language: Optional[str] = None):
 
     banner_sermon_doc = await sermons.find_one({"id": home.get("featured_banner_sermon_id")}) if home.get("featured_banner_sermon_id") else None
     banner_meeting_doc = await meetings.find_one({"id": home.get("featured_banner_meeting_id")}) if home.get("featured_banner_meeting_id") else None
-    banner_image_url = await _resolve_media_url(
+    banner_image_url = _resolve_media_url(
         home.get("featured_banner_image_storage_path"),
         home.get("featured_banner_image_url"),
     )
@@ -443,8 +444,8 @@ async def home(language: Optional[str] = None):
         "title": home.get("featured_banner_title"),
         "subtitle": home.get("featured_banner_subtitle"),
         "image_url": banner_image_url,
-        "sermon": await _project_sermon(banner_sermon_doc) if banner_sermon_doc else None,
-        "meeting": await _project_meeting(banner_meeting_doc) if banner_meeting_doc else None,
+        "sermon": _project_sermon(banner_sermon_doc) if banner_sermon_doc else None,
+        "meeting": _project_meeting(banner_meeting_doc) if banner_meeting_doc else None,
     }
 
     return {
