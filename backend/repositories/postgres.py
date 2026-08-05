@@ -197,10 +197,9 @@ class PostgreSQLRepository(BaseRepository):
             while len(all_results) < max_to_fetch:
                 batch_limit = min(1000, max_to_fetch - len(all_results))
                 params = dict(base_params)
-                params["limit"] = str(batch_limit)
-                params["offset"] = str(current_offset)
 
                 req_headers = self._get_supabase_headers()
+                req_headers["Range-Unit"] = "items"
                 req_headers["Range"] = f"{current_offset}-{current_offset + batch_limit - 1}"
 
                 res = await client.get(url, headers=req_headers, params=params, timeout=5.0)
@@ -309,7 +308,7 @@ class PostgreSQLRepository(BaseRepository):
                 rows = await conn.fetch(query, *params)
                 return [_row_to_dict(row) for row in rows]
         except Exception as e:
-            logger.warning(f"PostgreSQL asyncpg failed on find ({e}), falling back to Supabase REST")
+            logger.exception(f"PostgreSQL asyncpg failed on find ({e}), falling back to Supabase REST")
             return await self._rest_find(filt=filt, sort=sort, skip=skip, limit=limit)
 
     async def count(self, filt: Optional[dict] = None) -> int:
