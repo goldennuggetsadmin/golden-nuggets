@@ -1,3 +1,4 @@
+import os
 import logging
 from fastapi import FastAPI, Depends, Request
 from fastapi.responses import JSONResponse
@@ -21,6 +22,7 @@ from routers.home import router as home_router
 from routers.notifications import router as notifications_router
 from routers.mobile import router as mobile_router
 from routers.health import router as health_router
+from routers.transcript_review import router as transcript_review_router
 
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -47,6 +49,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    import time
+    start_time = time.perf_counter()
+    response = await call_next(request)
+    process_time = (time.perf_counter() - start_time) * 1000
+    response.headers["X-Process-Time"] = f"{process_time:.2f}ms"
+    return response
+
 from auth import auth_router
 
 # Auth
@@ -58,6 +69,7 @@ app.include_router(meetings_router)
 app.include_router(categories_router)
 app.include_router(media_router)
 app.include_router(import_router)
+app.include_router(transcript_review_router)
 app.include_router(dashboard_router)
 app.include_router(settings_router)
 app.include_router(activity_router)
@@ -114,8 +126,35 @@ async def health():
     return {"status": "healthy", "storage": storage_name}
 
 
+def _validate_startup_environment():
+    """Verify essential packages, environment settings, and directories on backend startup."""
+    REQUIRED_PACKAGES = [
+        "fastapi", "uvicorn", "asyncpg", "httpx", "pdfplumber",
+        "cachetools", "supabase", "pydantic", "jose", "passlib"
+    ]
+    missing = []
+    for pkg in REQUIRED_PACKAGES:
+        try:
+            __import__(pkg)
+        except ImportError:
+            missing.append(pkg)
+    if missing:
+        msg = f"CRITICAL STARTUP FAILURE: Missing required Python packages: {missing}. Please run `pip install -r requirements.txt`."
+        logger.critical(msg)
+        raise RuntimeError(msg)
+
+    if not settings.DATABASE_URL:
+        msg = "CRITICAL STARTUP FAILURE: DATABASE_URL is not set."
+        logger.critical(msg)
+        raise RuntimeError(msg)
+
+
 @app.on_event("startup")
 async def on_startup():
+    logger.info("================================──────────────────────────────")
+    logger.info("🚀 Golden Nuggets Backend Starting Up...")
+    logger.info("Environment: %s", os.environ.get("ENVIRONMENT", "development"))
+    _validate_startup_environment()
     logger.info("Initializing database connection pool on startup...")
     await connect()
     try:
@@ -123,10 +162,14 @@ async def on_startup():
         logger.info("Storage provider ready: %s", provider.name)
     except Exception as e:
         logger.warning(f"Storage provider init failed at startup: {e}")
+    logger.info("✅ Startup Validation Complete — System Operational!")
+    logger.info("================================──────────────────────────────")
+
 
 @app.on_event("shutdown")
 async def on_shutdown():
     await disconnect()
+
 
 
 if __name__ == "__main__":

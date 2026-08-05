@@ -322,18 +322,18 @@ async def get_sermon(sermon_id: str):
     
     if not doc:
         try:
-            doc = await sermons_repo().find_one({"code": sermon_id, "status": "published"})
+            doc = await sermons_repo().find_one({"sermon_code": sermon_id, "status": "published"})
         except Exception:
             doc = None
     if not doc:
         try:
-            doc = await sermons_repo().find_one({"audio_id": sermon_id, "status": "published"})
+            doc = await sermons_repo().find_one({"audio_url": sermon_id, "status": "published"})
         except Exception:
             doc = None
     if not doc:
         items = await sermons_repo().find({"status": "published"})
         for s in items:
-            if s.get("id") == sermon_id or s.get("code") == sermon_id or s.get("audio_id") == sermon_id or (s.get("title") and sermon_id.lower() in s.get("title").lower()):
+            if s.get("id") == sermon_id or s.get("sermon_code") == sermon_id or (s.get("title") and sermon_id.lower() in s.get("title").lower()):
                 doc = s
                 break
 

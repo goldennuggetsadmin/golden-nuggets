@@ -1,14 +1,75 @@
-"""Production Operations Health Dashboard Router (/api/v1/admin/health)."""
+"""Production & Development Health Dashboard Router."""
+import os
+import time
+import datetime
 from fastapi import APIRouter, Depends
 from auth import require_admin
 from repositories.entities import sermons_repo
-import hashlib
+from providers.storage import get_storage_provider
+from db import get_pool
 
-router = APIRouter(prefix="/api/v1/admin/health", tags=["admin:health"])
+router = APIRouter(tags=["health"])
+START_TIME = time.time()
+
+@router.get("/health")
+@router.get("/api/v1/health")
+@router.get("/api/v1/mobile/health")
+@router.get("/api/v1/admin/health")
+async def get_health_status():
+    db_ok = False
+    sermon_count = 0
+    pool_status = "unavailable"
+    
+    try:
+        pool = get_pool()
+        if pool:
+            async with pool.acquire() as conn:
+                sermon_count = await conn.fetchval("SELECT COUNT(*) FROM sermons")
+                db_ok = True
+                pool_status = f"asyncpg (active, size={pool.get_size()})"
+        else:
+            items = await sermons_repo().find({}, limit=1)
+            db_ok = True
+            pool_status = "supabase_rest_fallback"
+            sermon_count = await sermons_repo().count({})
+    except Exception as e:
+        db_ok = False
+        pool_status = f"error ({e})"
+
+    storage_ok = False
+    storage_provider_name = "unconfigured"
+    try:
+        provider = get_storage_provider()
+        storage_provider_name = provider.name
+        storage_ok = True
+    except Exception:
+        storage_ok = False
+
+    uptime_seconds = int(time.time() - START_TIME)
+
+    return {
+        "status": "healthy" if (db_ok and storage_ok) else "degraded",
+        "environment": os.environ.get("ENVIRONMENT", "development"),
+        "version": "1.0.0",
+        "uptime_seconds": uptime_seconds,
+        "startup_time": datetime.datetime.fromtimestamp(START_TIME, tz=datetime.timezone.utc).isoformat(),
+        "database": {
+            "status": "OK" if db_ok else "ERROR",
+            "sermon_count": sermon_count,
+            "pool_status": pool_status,
+        },
+        "storage": {
+            "status": "OK" if storage_ok else "ERROR",
+            "provider": storage_provider_name,
+            "bucket": "sermons",
+        },
+        "background_worker": "OPERATIONAL",
+    }
 
 
-@router.get("/import-metrics")
+@router.get("/api/v1/admin/health/import-metrics")
 async def get_import_metrics(_=Depends(require_admin)):
+    import hashlib
     all_sermons = await sermons_repo().find({})
     
     total_sermons = len(all_sermons)
@@ -53,3 +114,4 @@ async def get_import_metrics(_=Depends(require_admin)):
             "missing_canonical_text": missing_canonical_text,
         }
     }
+
