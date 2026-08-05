@@ -101,7 +101,11 @@ export function buildTranscriptDocument(
       .map((p, idx) => {
         const pNum = p.paragraph_number; // null if unnumbered
         let cleanText = (p.text || "").replace(/^\d+[\.\s\-]+/, "").trim();
-        if (idx === 0 || pNum === null || pNum === 1) {
+        // Only strip PDF title artifacts from the very first paragraph or paragraph #1.
+        // Do NOT apply to all unnumbered paragraphs: pNum===null is true for every cross-page
+        // continuation paragraph, and running stripTitleHeaderFromParagraph1() on them would
+        // silently corrupt their text.
+        if (idx === 0 || pNum === 1) {
           cleanText = stripTitleHeaderFromParagraph1(cleanText);
         }
         const bType = detectBlockType(cleanText, pNum ?? undefined, idx);

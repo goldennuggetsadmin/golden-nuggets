@@ -20,6 +20,7 @@ import { useDownloads } from "@/src/downloads/DownloadsContext";
 import { useToast } from "@/src/toast/ToastContext";
 import { InputSheet } from "@/src/components/InputSheet";
 import { PickerSheet } from "@/src/components/PickerSheet";
+import { DownloadModal } from "@/src/components/DownloadModal";
 import { api } from "@/src/api/client";
 
 const RATES = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0] as const;
@@ -38,6 +39,7 @@ export default function PlayerScreen() {
   const [showQueue, setShowQueue] = useState(false);
   const [showSleep, setShowSleep] = useState(false);
   const [showRate, setShowRate] = useState(false);
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
 
   const m = p.current;
   useEffect(() => {
@@ -132,7 +134,7 @@ export default function PlayerScreen() {
           <Text style={styles.topEyebrow}>NOW PLAYING</Text>
           <Text style={styles.topCategory}>{m.category}</Text>
         </View>
-        <Pressable testID="player-download" onPress={onSave} style={styles.topBtn}>
+        <Pressable testID="player-download" onPress={() => setShowDownloadModal(true)} style={styles.topBtn}>
           {isDownloaded
             ? <Ionicons name="checkmark-circle" size={22} color={colors.emerald} />
             : <ArrowDownToLine size={22} color={isDownloading ? colors.emerald : colors.foreground} strokeWidth={2} />}
@@ -228,6 +230,12 @@ export default function PlayerScreen() {
         value={s.playbackRate}
         onChange={(v) => p.setRate(v as number)}
         options={RATES.map((r) => ({ value: r, label: r === 1 ? "1× (normal)" : `${r}×` }))}
+      />
+
+      <DownloadModal
+        visible={showDownloadModal}
+        testimony={m}
+        onClose={() => setShowDownloadModal(false)}
       />
     </Animated.View>
   );

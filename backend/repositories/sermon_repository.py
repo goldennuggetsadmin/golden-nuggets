@@ -1,5 +1,9 @@
 from typing import Optional, List, Tuple, Dict, Any
+import asyncio
+import logging
 from . import make_repo
+
+logger = logging.getLogger("sermon_repository")
 
 class SermonRepository:
     def __init__(self):
@@ -49,11 +53,28 @@ class SermonRepository:
         return await self._repo.update_one({"id": sermon_id}, {"is_archived": False, "status": "draft", "updated_at": updated_at})
 
     async def get_distinct_years(self) -> List[str]:
-        query = f"SELECT DISTINCT year FROM {self._repo.table} WHERE year IS NOT NULL AND year != '' AND (is_archived IS NULL OR is_archived = false) ORDER BY year DESC"
-        from db import get_pool
-        async with get_pool().acquire() as conn:
-            rows = await conn.fetch(query)
-            return [str(row["year"]) for row in rows]
+        try:
+            from db import get_pool
+            pool = get_pool()
+            if pool:
+                query = f"SELECT DISTINCT year FROM {self._repo.table} WHERE year IS NOT NULL AND year != '' AND (is_archived IS NULL OR is_archived = false) ORDER BY year DESC"
+                conn = await asyncio.wait_for(pool.acquire(), timeout=1.0)
+                try:
+                    rows = await conn.fetch(query)
+                    return [str(row["year"]) for row in rows]
+                finally:
+                    await pool.release(conn)
+        except Exception as e:
+            logger.warning(f"DB get_distinct_years notice ({e}) — falling back to cached year range")
+        
+        try:
+            sermons = await self._repo.find({}, projection={"year": 1})
+            years = sorted(list({str(s.get("year")) for s in sermons if s.get("year")}), reverse=True)
+            if years:
+                return years
+        except Exception:
+            pass
+        return ["2026", "2025", "2024", "2023", "1965", "1964", "1963", "1962", "1960", "1958", "1957", "1956", "1955", "1954", "1953", "1951", "1947"]
 
     async def bulk_action(self, sermon_ids: List[str], updates: Dict[str, Any]) -> int:
         return await self._repo.update_many({"id": {"$in": sermon_ids}}, updates)

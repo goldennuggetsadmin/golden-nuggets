@@ -55,11 +55,21 @@ CREATE TABLE IF NOT EXISTS sermons (
     audio_url TEXT,
     audio_storage_path TEXT,
     artwork_url TEXT,
-    artwork_storage_path TEXT,
     pdf_english_url TEXT,
     pdf_english_storage_path TEXT,
+    english_pdf_storage_path TEXT,
+    english_pdf_hash TEXT,
+    english_pdf_size BIGINT,
+    english_pdf_filename TEXT,
+    english_pdf_page_count INTEGER,
     pdf_telugu_url TEXT,
     pdf_telugu_storage_path TEXT,
+    telugu_pdf_storage_path TEXT,
+    telugu_pdf_hash TEXT,
+    telugu_pdf_size BIGINT,
+    telugu_pdf_filename TEXT,
+    telugu_pdf_page_count INTEGER,
+    pdf_uploaded_at TIMESTAMPTZ,
     is_archived BOOLEAN NOT NULL DEFAULT FALSE,
     play_count INTEGER NOT NULL DEFAULT 0,
     download_count INTEGER NOT NULL DEFAULT 0,
@@ -71,6 +81,12 @@ CREATE INDEX IF NOT EXISTS idx_sermons_status ON sermons(status);
 CREATE INDEX IF NOT EXISTS idx_sermons_created_at ON sermons(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sermons_speaker ON sermons(speaker);
 CREATE INDEX IF NOT EXISTS idx_sermons_is_archived ON sermons(is_archived);
+CREATE INDEX IF NOT EXISTS idx_sermons_language ON sermons(language);
+CREATE INDEX IF NOT EXISTS idx_sermons_year ON sermons(year);
+CREATE INDEX IF NOT EXISTS idx_sermons_series ON sermons(series);
+CREATE INDEX IF NOT EXISTS idx_sermons_code ON sermons(sermon_code);
+CREATE INDEX IF NOT EXISTS idx_sermons_created_id ON sermons(created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_sermons_status_lang ON sermons(status, is_archived, language);
 
 -- ------------------------------------------------------------------------------
 -- MEETINGS

@@ -15,15 +15,17 @@ import { SermonCard } from "@/src/components/SermonCard";
 import { getContentType } from "@/src/utils/sermonUtils";
 import { useSettings } from "@/src/settings/SettingsContext";
 import { usePlayer } from "@/src/player/PlayerContext";
+import { useDownloads } from "@/src/downloads/DownloadsContext";
 
-const FOUR_TABS = [
+
+const FIVE_TABS = [
   { id: "recent", label: "Recent", icon: "time" },
   { id: "highlights", label: "Highlights", icon: "star" },
   { id: "notes", label: "Notes", icon: "journal" },
   { id: "favorites", label: "Favorites", icon: "heart" },
 ] as const;
 
-type TabId = typeof FOUR_TABS[number]["id"];
+type TabId = typeof FIVE_TABS[number]["id"];
 const TAB_BAR_INSET = 100;
 
 export default function LibraryScreen() {
@@ -43,6 +45,7 @@ export default function LibraryScreen() {
 
   const toast = useToast();
   const p = usePlayer();
+  const downloads = useDownloads();
   const { appLanguage, fontSize } = useSettings();
 
   const load = useCallback(async (isRefresh = false) => {
@@ -148,9 +151,9 @@ export default function LibraryScreen() {
           <Text style={styles.sub}>{"Your saved sermons, highlights, and activity."}</Text>
         </View>
 
-        {/* 4 Tabs */}
+        {/* 5 Tabs */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: spacing[5], gap: spacing[2] }}>
-          {FOUR_TABS.map(({ id, label, icon }) => {
+          {FIVE_TABS.map(({ id, label, icon }) => {
             const active = tab === id;
             return (
               <Pressable

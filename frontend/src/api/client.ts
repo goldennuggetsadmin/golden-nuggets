@@ -245,6 +245,66 @@ export const api = {
     return api.getTestimony(id);
   },
 
+  searchPaginated: async (
+    q: string = "",
+    category_id?: string,
+    language?: string,
+    page: number = 1,
+    pageSize: number = 20,
+    cursor?: string
+  ): Promise<{ items: Testimony[]; total: number; page: number; page_size: number; has_more: boolean; next_cursor?: string }> => {
+    const langKey = language || "en";
+    const qs = new URLSearchParams();
+    qs.set("page", String(page));
+    qs.set("page_size", String(pageSize));
+    if (q) qs.set("q", q);
+    if (category_id) qs.set("category_id", category_id);
+    if (cursor) qs.set("cursor", cursor);
+    const langParam = _toLangParam(language);
+    if (langParam) qs.set("language", langParam);
+
+    try {
+      const res = await j<{ items: BackendSermon[]; total: number; page?: number; page_size?: number; has_more?: boolean; next_cursor?: string }>(`/sermons?${qs}`);
+      const favs = await userStore.getFavorites();
+      const progs = await userStore.getProgressMap();
+      const adapted = await Promise.all((res.items || []).map((s) => adaptSermon(s, favs, progs)));
+
+      return {
+        items: adapted,
+        total: res.total || adapted.length,
+        page: res.page || page,
+        page_size: res.page_size || pageSize,
+        has_more: Boolean(res.has_more),
+        next_cursor: res.next_cursor,
+      };
+    } catch (e) {
+      console.warn(`[api.searchPaginated] Query failed for q="${q}", lang="${langKey}"`, e);
+      return { items: [], total: 0, page, page_size: pageSize, has_more: false };
+    }
+  },
+
+  seriesSummary: async (language?: string): Promise<{ name: string; sermonCount: number }[]> => {
+    const langParam = _toLangParam(language);
+    const qs = langParam ? `?language=${encodeURIComponent(langParam)}` : "";
+    try {
+      return await j<{ name: string; sermonCount: number }[]>(`/series${qs}`);
+    } catch (e) {
+      console.warn("[api.seriesSummary] Failed:", e);
+      return [];
+    }
+  },
+
+  statesSummary: async (language?: string): Promise<{ state: string; sermonCount: number }[]> => {
+    const langParam = _toLangParam(language);
+    const qs = langParam ? `?language=${encodeURIComponent(langParam)}` : "";
+    try {
+      return await j<{ state: string; sermonCount: number }[]>(`/states${qs}`);
+    } catch (e) {
+      console.warn("[api.statesSummary] Failed:", e);
+      return [];
+    }
+  },
+
   search: async (q: string, category_id?: string, language?: string): Promise<Testimony[]> => {
     const langKey = language || "en";
     const cacheKey = `search_v3_${q}_${category_id || ""}_${langKey}`;
@@ -254,7 +314,6 @@ export const api = {
     qs.set("page_size", "10000");
     if (q) qs.set("q", q);
     if (category_id) qs.set("category_id", category_id);
-    // Always send full DB name so the backend matches correctly ("English"/"Telugu")
     const langParam = _toLangParam(language);
     if (langParam) qs.set("language", langParam);
 
@@ -264,12 +323,6 @@ export const api = {
       const favs = await userStore.getFavorites();
       const progs = await userStore.getProgressMap();
       const adapted = await Promise.all((res.items || []).map((s) => adaptSermon(s, favs, progs)));
-
-      console.log(`[API Trace] Received from API: ${rawCount}`);
-      console.log(`[API Trace] After parse & adapt: ${adapted.length}`);
-      console.log(`[API Trace] Language filter param: "${langParam || "all"}"`);
-      console.log(`[API Trace] Search filter query: "${q || "none"}"`);
-      console.log(`[API Trace] Rendered count: ${adapted.length}`);
 
       if (adapted.length > 0) {
         if (!q && !category_id) {

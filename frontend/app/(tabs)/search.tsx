@@ -1,11 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useFocusEffect } from "expo-router";
 
 import { api, Testimony } from "@/src/api/client";
-import { cacheStore } from "@/src/utils/cache";
 import { radii, spacing, typography } from "@/src/theme/tokens";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { Skeleton } from "@/src/components/Skeleton";
@@ -18,9 +17,20 @@ import { useSettings } from "@/src/settings/SettingsContext";
 const SEARCH_TABS = ["Title", "Year", "State", "Series"] as const;
 type SearchTab = typeof SEARCH_TABS[number];
 const TAB_BAR_INSET = 100;
+const PAGE_SIZE = 20;
 
 interface YearSummary {
   year: number;
+  sermonCount: number;
+}
+
+interface StateSummary {
+  state: string;
+  sermonCount: number;
+}
+
+interface SeriesSummary {
+  name: string;
   sermonCount: number;
 }
 
@@ -30,216 +40,160 @@ export default function SearchScreen() {
   const { colors, theme } = useTheme();
   const styles = getStyles(colors, theme);
 
-  const [q, setQ] = useState("");
+  // Search input state (un-debounced for 60 FPS typing responsiveness)
+  const [inputText, setInputText] = useState("");
+  // Debounced search query state
+  const [searchQuery, setSearchQuery] = useState("");
+
   const [activeTab, setActiveTab] = useState<SearchTab>("Title");
-  const [allSermons, setAllSermons] = useState<Testimony[]>([]);
+  
+  // Paginated Sermons State (Title Tab / Search Results)
+  const [sermons, setSermons] = useState<Testimony[]>([]);
+  const [page, setPage] = useState(1);
+  const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalCount, setTotalCount] = useState(0);
+
+  const [loadingInitial, setLoadingInitial] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [hasError, setHasError] = useState(false);
+
+  // Tab Summaries State
   const [yearSummaries, setYearSummaries] = useState<YearSummary[]>([]);
-  const [searchResults, setSearchResults] = useState<Testimony[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [loadingMaster, setLoadingMaster] = useState(true);
-  const [initialLoaded, setInitialLoaded] = useState(false);
-  const [hasNetworkError, setHasNetworkError] = useState(false);
+  const [stateSummaries, setStateSummaries] = useState<StateSummary[]>([]);
+  const [seriesSummaries, setSeriesSummaries] = useState<SeriesSummary[]>([]);
+  const [loadingTabSummary, setLoadingTabSummary] = useState(false);
 
   const isMountedRef = useRef(true);
   const lastLangRef = useRef<string>("");
 
-  /**
-   * Master sermon loader with fallback cache and network error state handling.
-   */
-  const fetchMasterSermons = useCallback(async (lang: string) => {
-    console.log(`[SearchScreen] Loading master sermons for language: "${lang}"`);
-    setHasNetworkError(false);
+  // 1. Debounce raw input text -> searchQuery (300ms delay)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(inputText.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [inputText]);
 
-    // 1. Versioned Cache Recovery (Instant load <1ms)
-    const cachedYears = await cacheStore.get<YearSummary[]>(`years_summary_v3_${lang}`);
-    const cachedSermons = await cacheStore.get<Testimony[]>(`search_master_v3_${lang}`);
-
-    if (cachedYears && cachedYears.length > 0 && isMountedRef.current) {
-      setYearSummaries(cachedYears);
-    }
-
-    if (cachedSermons && cachedSermons.length >= 100 && isMountedRef.current) {
-      console.log(`[SearchScreen] Instant cache hit: ${cachedSermons.length} sermons for lang "${lang}"`);
-      const sorted = [...cachedSermons].sort((a, b) => (a.title || "").localeCompare(b.title || ""));
-      setAllSermons(sorted);
-      setLoadingMaster(false);
-      setInitialLoaded(true);
-    } else if (isMountedRef.current) {
-      setLoadingMaster(true);
-    }
-
-    // 2. Parallel Async API Fetch for Years Summary + Full Sermon Catalog
-    let fetchFailed = false;
+  // 2. Fetch Initial Page of Sermons (Page 1)
+  const fetchInitialSermons = useCallback(async (q: string, lang: string) => {
+    if (!isMountedRef.current) return;
+    setLoadingInitial(true);
+    setHasError(false);
     try {
-      const [yearsRes, itemsRes] = await Promise.all([
-        api.years(lang).catch((e) => { fetchFailed = true; return []; }),
-        api.search("", undefined, lang).catch((e) => { fetchFailed = true; return []; }),
-      ]);
-
+      const res = await api.searchPaginated(q, undefined, lang, 1, PAGE_SIZE);
       if (!isMountedRef.current) return;
+      setSermons(res.items);
+      setTotalCount(res.total);
+      setHasMore(res.has_more);
+      setNextCursor(res.next_cursor);
+      setPage(1);
 
-      if (yearsRes && yearsRes.length > 0) {
-        setYearSummaries(yearsRes);
-        cacheStore.set(`years_summary_v3_${lang}`, yearsRes);
-      }
-
-      if (itemsRes && itemsRes.length > 0) {
-        const sorted = [...itemsRes].sort((a, b) => (a.title || "").localeCompare(b.title || ""));
-        setAllSermons(sorted);
-        cacheStore.set(`search_master_v3_${lang}`, sorted);
-        fetchFailed = false;
-
-        console.log("================================──────────────────────────────");
-        console.log(`[SearchScreen Runtime Log] Target Base URL: "${api.base}"`);
-        console.log(`[SearchScreen Runtime Log] Requested Language: "${lang}"`);
-        console.log(`[SearchScreen Runtime Log] Sermons Received from API: ${itemsRes.length}`);
-        console.log(`[SearchScreen Runtime Log] Sermons Rendered in UI: ${sorted.length}`);
-        console.log("================================──────────────────────────────");
-      } else if (fetchFailed) {
-        console.warn(`[SearchScreen] API fetch encountered connection error for lang "${lang}"`);
-      }
+      console.log(`[SearchScreen] Page 1 Loaded: returned ${res.items.length}/${res.total}, has_more=${res.has_more}`);
     } catch (err) {
-      fetchFailed = true;
-      console.error(`[SearchScreen] API fetch exception for lang "${lang}":`, err);
+      console.error("[SearchScreen] Initial fetch error:", err);
+      if (isMountedRef.current) setHasError(true);
     } finally {
       if (isMountedRef.current) {
-        setLoadingMaster(false);
-        setInitialLoaded(true);
-
-        // 3. Fallback recovery if state is still empty after network failure
-        if (allSermons.length === 0) {
-          const fallback = (await cacheStore.get<Testimony[]>("sermons_fallback")) || (await cacheStore.get<Testimony[]>("sermons_all"));
-          if (fallback && fallback.length > 0) {
-            console.log(`[SearchScreen] Recovered ${fallback.length} fallback sermons from offline store`);
-            setAllSermons(fallback);
-          } else if (fetchFailed) {
-            setHasNetworkError(true);
-          }
-        }
+        setLoadingInitial(false);
+        setRefreshing(false);
       }
-    }
-  }, [allSermons.length]);
-
-  // Focus effect: Syncs master list whenever Search tab is focused
-  useFocusEffect(
-    useCallback(() => {
-      isMountedRef.current = true;
-      fetchMasterSermons(appLanguage);
-
-      return () => {
-        isMountedRef.current = false;
-      };
-    }, [appLanguage, fetchMasterSermons])
-  );
-
-  // Language switch handler: Resets query and re-fetches for target language
-  useEffect(() => {
-    if (lastLangRef.current && lastLangRef.current !== appLanguage) {
-      console.log(`[SearchScreen] Language changed from "${lastLangRef.current}" -> "${appLanguage}"`);
-      setSearchResults([]);
-      setQ("");
-      fetchMasterSermons(appLanguage);
-    }
-    lastLangRef.current = appLanguage;
-  }, [appLanguage, fetchMasterSermons]);
-
-  // Debounced search query handler
-  const doSearch = useCallback(async (needle: string, lang: string) => {
-    if (!needle.trim()) {
-      setSearchResults([]);
-      setSearching(false);
-      return;
-    }
-    console.log(`[SearchScreen] Querying needle="${needle}", lang="${lang}"`);
-    setSearching(true);
-    try {
-      const r = await api.search(needle, undefined, lang);
-      const sorted = [...r].sort((a, b) => (a.title || "").localeCompare(b.title || ""));
-      setSearchResults(sorted);
-      console.log(`[SearchScreen] Query results count: ${sorted.length}`);
-    } catch (err) {
-      console.error(`[SearchScreen] Query failed for needle="${needle}":`, err);
-      setSearchResults([]);
-    } finally {
-      setSearching(false);
     }
   }, []);
 
-  useEffect(() => {
-    const t = setTimeout(() => doSearch(q, appLanguage), 220);
-    return () => clearTimeout(t);
-  }, [q, appLanguage, doSearch]);
+  // 3. Fetch Next Page of Sermons (Infinite Scroll)
+  const fetchNextPage = useCallback(async () => {
+    if (!hasMore || loadingMore || loadingInitial) return;
+    setLoadingMore(true);
+    const nextPage = page + 1;
+    try {
+      const res = await api.searchPaginated(
+        searchQuery,
+        undefined,
+        appLanguage,
+        nextPage,
+        PAGE_SIZE,
+        nextCursor
+      );
+      if (!isMountedRef.current) return;
 
-  const isQuerying = q.trim().length > 0;
-  const activeDataset = isQuerying ? searchResults : allSermons;
+      setSermons((prev) => [...prev, ...res.items]);
+      setHasMore(res.has_more);
+      setNextCursor(res.next_cursor);
+      setPage(nextPage);
 
-  // Dynamic Groupings for Year, State, Series
-  const yearGroups = useMemo(() => {
-    const map: Record<string, Testimony[]> = {};
-    activeDataset.forEach((item) => {
-      if (item.year) {
-        const yr = String(item.year);
-        if (!map[yr]) map[yr] = [];
-        map[yr].push(item);
-      }
-    });
-
-    if (!isQuerying && yearSummaries.length > 0) {
-      yearSummaries.forEach((ys) => {
-        const yrStr = String(ys.year);
-        if (!map[yrStr]) {
-          map[yrStr] = [];
-        }
-      });
+      console.log(`[SearchScreen] Loaded Page ${nextPage}: +${res.items.length} items`);
+    } catch (err) {
+      console.error(`[SearchScreen] Page ${nextPage} fetch error:`, err);
+    } finally {
+      if (isMountedRef.current) setLoadingMore(false);
     }
+  }, [hasMore, loadingMore, loadingInitial, page, searchQuery, appLanguage, nextCursor]);
 
-    const entries = Object.entries(map).map(([yrStr, items]) => {
-      const matchingSummary = yearSummaries.find((ys) => String(ys.year) === yrStr);
-      const displayCount = matchingSummary ? matchingSummary.sermonCount : items.length;
-      return [yrStr, items, displayCount] as [string, Testimony[], number];
-    });
-
-    return entries.sort((a, b) => b[0].localeCompare(a[0]));
-  }, [activeDataset, isQuerying, yearSummaries]);
-
-  const stateGroups = useMemo(() => {
-    const map: Record<string, Testimony[]> = {};
-    activeDataset.forEach((item) => {
-      if (item.state && String(item.state).trim()) {
-        const st = String(item.state).trim();
-        if (!map[st]) map[st] = [];
-        map[st].push(item);
+  // 4. Fetch Tab Summaries (Year, State, Series)
+  const fetchTabSummary = useCallback(async (tab: SearchTab, lang: string) => {
+    setLoadingTabSummary(true);
+    try {
+      if (tab === "Year") {
+        const years = await api.years(lang);
+        if (isMountedRef.current) setYearSummaries(years);
+      } else if (tab === "State") {
+        const states = await api.statesSummary(lang);
+        if (isMountedRef.current) setStateSummaries(states);
+      } else if (tab === "Series") {
+        const series = await api.seriesSummary(lang);
+        if (isMountedRef.current) setSeriesSummaries(series);
       }
-    });
-    return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [activeDataset]);
+    } catch (err) {
+      console.error(`[SearchScreen] Tab summary fetch error for ${tab}:`, err);
+    } finally {
+      if (isMountedRef.current) setLoadingTabSummary(false);
+    }
+  }, []);
 
-  const seriesGroups = useMemo(() => {
-    const map: Record<string, Testimony[]> = {};
-    activeDataset.forEach((item) => {
-      const s = (item.category && item.category.trim()) ? item.category.trim() : "General";
-      if (!map[s]) map[s] = [];
-      map[s].push(item);
-    });
-    const entries = Object.entries(map);
-    return entries.sort((a, b) => {
-      if (a[0] === "General") return 1;
-      if (b[0] === "General") return -1;
-      return a[0].localeCompare(b[0]);
-    });
-  }, [activeDataset]);
+  // Trigger search whenever debounced searchQuery or appLanguage changes
+  useEffect(() => {
+    fetchInitialSermons(searchQuery, appLanguage);
+    if (activeTab !== "Title") {
+      fetchTabSummary(activeTab, appLanguage);
+    }
+  }, [searchQuery, appLanguage, fetchInitialSermons, fetchTabSummary, activeTab]);
 
-  return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.background }}
-      contentContainerStyle={{ paddingTop: insets.top + spacing[2], paddingBottom: TAB_BAR_INSET }}
-      keyboardShouldPersistTaps="handled"
-    >
+  // Handle Tab Switching
+  const handleTabPress = (tab: SearchTab) => {
+    setActiveTab(tab);
+    if (tab !== "Title") {
+      fetchTabSummary(tab, appLanguage);
+    }
+  };
+
+  // Focus effect: ensure mounted flag
+  useFocusEffect(
+    useCallback(() => {
+      isMountedRef.current = true;
+      return () => {
+        isMountedRef.current = false;
+      };
+    }, [])
+  );
+
+  // FlatList Render Item Callback for Sermon Cards
+  const renderSermonItem = useCallback(({ item }: { item: Testimony }) => (
+    <SermonCard sermon={item} horizontal />
+  ), []);
+
+  // Key Extractor
+  const keyExtractor = useCallback((item: Testimony) => item.id, []);
+
+  // FlatList Header Component
+  const renderHeader = useMemo(() => (
+    <View>
       <View style={{ paddingHorizontal: spacing[5], paddingBottom: spacing[3] }}>
         <Text style={styles.h1}>Search</Text>
       </View>
 
-      {/* Language Selector — ABOVE search bar */}
+      {/* Language Selector */}
       <View style={{ paddingHorizontal: spacing[5], marginBottom: spacing[3] }}>
         <LanguageSelector testID="search-lang-selector" />
       </View>
@@ -250,16 +204,16 @@ export default function SearchScreen() {
           <Ionicons name="search" size={18} color={colors.mutedForeground} />
           <TextInput
             testID="search-input"
-            value={q}
-            onChangeText={setQ}
+            value={inputText}
+            onChangeText={setInputText}
             placeholder="Search sermons, series, years..."
             placeholderTextColor={colors.mutedForeground}
             style={styles.input}
             autoCorrect={false}
             returnKeyType="search"
           />
-          {q ? (
-            <Pressable testID="search-clear" onPress={() => setQ("")} style={styles.clearBtn}>
+          {inputText ? (
+            <Pressable testID="search-clear" onPress={() => setInputText("")} style={styles.clearBtn}>
               <Ionicons name="close" size={14} color={colors.mutedForeground} />
             </Pressable>
           ) : null}
@@ -267,14 +221,18 @@ export default function SearchScreen() {
       </View>
 
       {/* Search Tabs */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: spacing[5], gap: spacing[2], paddingTop: spacing[4] }}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: spacing[5], gap: spacing[2], paddingTop: spacing[4], paddingBottom: spacing[4] }}
+      >
         {SEARCH_TABS.map((tab) => {
           const active = activeTab === tab;
           return (
             <Pressable
               key={tab}
               testID={`search-tab-${tab}`}
-              onPress={() => setActiveTab(tab)}
+              onPress={() => handleTabPress(tab)}
               style={[styles.chip, active && styles.chipActive]}
             >
               <Text style={[styles.chipText, active && styles.chipTextActive]}>{tab}</Text>
@@ -283,160 +241,179 @@ export default function SearchScreen() {
         })}
       </ScrollView>
 
-      {/* SEARCH RESULTS MODE vs DISCOVERY / TABS MODE */}
-      {isQuerying ? (
-        <View style={{ marginTop: spacing[6], paddingHorizontal: spacing[5] }}>
+      {/* Results Header Label */}
+      {(searchQuery.length > 0 || activeTab === "Title") && (
+        <View style={{ paddingHorizontal: spacing[5], marginBottom: spacing[2] }}>
           <Text style={styles.count}>
-            {searching ? "SEARCHING…" : `${searchResults.length} RESULT${searchResults.length === 1 ? "" : "S"}`}
+            {loadingInitial
+              ? "SEARCHING…"
+              : searchQuery.length > 0
+              ? `${totalCount} RESULT${totalCount === 1 ? "" : "S"}`
+              : `${totalCount} SERMONS AVAILABLE`}
           </Text>
-
-          {searching ? (
-            <View style={{ gap: spacing[2] }}>
-              {[0, 1, 2].map((i) => <Skeleton key={i} style={{ height: 72, borderRadius: radii.md, marginTop: spacing[2] }} />)}
-            </View>
-          ) : searchResults.length === 0 ? (
-            <EmptyState icon="search-outline" title="Nothing found" message={`No results matching "${q}" in this language.`} />
-          ) : (
-            <View>
-              {searchResults.map((item) => (
-                <SermonCard key={item.id} sermon={item} horizontal />
-              ))}
-            </View>
-          )}
-        </View>
-      ) : (
-        <View style={{ marginTop: spacing[6] }}>
-
-          {/* TITLE TAB */}
-          {activeTab === "Title" && (
-            <View style={{ paddingHorizontal: spacing[5] }}>
-              {loadingMaster && allSermons.length === 0 ? (
-                <View style={{ gap: spacing[2] }}>
-                  {[0, 1, 2, 3].map((i) => (
-                    <Skeleton key={i} style={{ height: 72, borderRadius: radii.md, marginTop: spacing[2] }} />
-                  ))}
-                </View>
-              ) : hasNetworkError && allSermons.length === 0 ? (
-                <View style={styles.errorWrap}>
-                  <EmptyState icon="cloud-offline-outline" title="Unable to Connect" message="Could not connect to server. Please check your connection." />
-                  <Pressable style={styles.retryBtn} onPress={() => fetchMasterSermons(appLanguage)}>
-                    <Text style={styles.retryBtnText}>Tap to Retry</Text>
-                  </Pressable>
-                </View>
-              ) : !loadingMaster && initialLoaded && allSermons.length === 0 ? (
-                <EmptyState icon="musical-notes-outline" title="No sermons" message="No sermons available in this language." />
-              ) : (
-                allSermons.map((item) => (
-                  <SermonCard key={item.id} sermon={item} horizontal />
-                ))
-              )}
-            </View>
-          )}
-
-          {/* YEAR TAB — Expandable Groups */}
-          {activeTab === "Year" && (
-            <View style={{ paddingHorizontal: spacing[5] }}>
-              {loadingMaster && yearGroups.length === 0 ? (
-                <View style={{ gap: spacing[2] }}>
-                  {[0, 1, 2, 3].map((i) => (
-                    <Skeleton key={i} style={{ height: 60, borderRadius: radii.md, marginTop: spacing[2] }} />
-                  ))}
-                </View>
-              ) : hasNetworkError && yearGroups.length === 0 ? (
-                <View style={styles.errorWrap}>
-                  <EmptyState icon="cloud-offline-outline" title="Unable to Connect" message="Could not connect to server. Please check your connection." />
-                  <Pressable style={styles.retryBtn} onPress={() => fetchMasterSermons(appLanguage)}>
-                    <Text style={styles.retryBtnText}>Tap to Retry</Text>
-                  </Pressable>
-                </View>
-              ) : !loadingMaster && initialLoaded && yearGroups.length === 0 ? (
-                <EmptyState icon="calendar-outline" title="No sermons" message="No sermons found for this language." />
-              ) : (
-                yearGroups.map(([yearStr, items, displayCount]) => (
-                  <ExpandableGroup
-                    key={yearStr}
-                    title={yearStr}
-                    count={displayCount}
-                    subtitle="Last Updated"
-                    items={items}
-                  />
-                ))
-              )}
-            </View>
-          )}
-
-          {/* STATE TAB — Expandable Groups */}
-          {activeTab === "State" && (
-            <View style={{ paddingHorizontal: spacing[5] }}>
-              {loadingMaster && stateGroups.length === 0 ? (
-                <View style={{ gap: spacing[2] }}>
-                  {[0, 1, 2, 3].map((i) => (
-                    <Skeleton key={i} style={{ height: 60, borderRadius: radii.md, marginTop: spacing[2] }} />
-                  ))}
-                </View>
-              ) : hasNetworkError && stateGroups.length === 0 ? (
-                <View style={styles.errorWrap}>
-                  <EmptyState icon="cloud-offline-outline" title="Unable to Connect" message="Could not connect to server. Please check your connection." />
-                  <Pressable style={styles.retryBtn} onPress={() => fetchMasterSermons(appLanguage)}>
-                    <Text style={styles.retryBtnText}>Tap to Retry</Text>
-                  </Pressable>
-                </View>
-              ) : !loadingMaster && initialLoaded && stateGroups.length === 0 ? (
-                <EmptyState icon="location-outline" title="No sermons" message="No sermons with location data in this language." />
-              ) : (
-                stateGroups.map(([stateStr, items]) => (
-                  <ExpandableGroup
-                    key={stateStr}
-                    title={stateStr}
-                    count={items.length}
-                    subtitle="Latest Added"
-                    items={items}
-                  />
-                ))
-              )}
-            </View>
-          )}
-
-          {/* SERIES TAB — Clean Vertical List */}
-          {activeTab === "Series" && (
-            <View style={{ paddingHorizontal: spacing[5] }}>
-              {loadingMaster && seriesGroups.length === 0 ? (
-                <View style={{ gap: spacing[2] }}>
-                  {[0, 1, 2, 3].map((i) => (
-                    <Skeleton key={i} style={{ height: 56, borderRadius: radii.md, marginTop: spacing[2] }} />
-                  ))}
-                </View>
-              ) : hasNetworkError && seriesGroups.length === 0 ? (
-                <View style={styles.errorWrap}>
-                  <EmptyState icon="cloud-offline-outline" title="Unable to Connect" message="Could not connect to server. Please check your connection." />
-                  <Pressable style={styles.retryBtn} onPress={() => fetchMasterSermons(appLanguage)}>
-                    <Text style={styles.retryBtnText}>Tap to Retry</Text>
-                  </Pressable>
-                </View>
-              ) : !loadingMaster && initialLoaded && seriesGroups.length === 0 ? (
-                <EmptyState icon="albums-outline" title="No series" message="No series available in this language." />
-              ) : (
-                seriesGroups.map(([seriesName, items], index) => (
-                  <Pressable
-                    key={seriesName}
-                    onPress={() => router.push({ pathname: "/series", params: { title: seriesName } })}
-                    style={[
-                      styles.seriesRow,
-                      index < seriesGroups.length - 1 && styles.seriesRowBorder,
-                    ]}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.seriesRowTitle}>{seriesName}</Text>
-                      <Text style={styles.seriesRowMeta}>{items.length} Sermons</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
-                  </Pressable>
-                ))
-              )}
-            </View>
-          )}
         </View>
       )}
+    </View>
+  ), [inputText, searchQuery, activeTab, colors, styles, loadingInitial, totalCount]);
+
+  // FlatList Footer Component (Spinner / End of list message)
+  const renderFooter = useCallback(() => {
+    if (loadingMore) {
+      return (
+        <View style={{ paddingVertical: spacing[4], alignItems: "center" }}>
+          <ActivityIndicator size="small" color={colors.emerald} />
+        </View>
+      );
+    }
+    return null;
+  }, [loadingMore, colors.emerald]);
+
+  // FlatList Empty Component
+  const renderEmpty = useCallback(() => {
+    if (loadingInitial) {
+      return (
+        <View style={{ paddingHorizontal: spacing[5], gap: spacing[2] }}>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} style={{ height: 72, borderRadius: radii.md, marginTop: spacing[2] }} />
+          ))}
+        </View>
+      );
+    }
+    if (hasError) {
+      return (
+        <View style={styles.errorWrap}>
+          <EmptyState icon="cloud-offline-outline" title="Unable to Connect" message="Could not connect to server. Please check your connection." />
+          <Pressable style={styles.retryBtn} onPress={() => fetchInitialSermons(searchQuery, appLanguage)}>
+            <Text style={styles.retryBtnText}>Tap to Retry</Text>
+          </Pressable>
+        </View>
+      );
+    }
+    return (
+      <View style={{ paddingHorizontal: spacing[5] }}>
+        <EmptyState
+          icon="search-outline"
+          title="No sermons found"
+          message={searchQuery ? `No sermons matching "${searchQuery}" in this language.` : "No sermons available for this language."}
+        />
+      </View>
+    );
+  }, [loadingInitial, hasError, searchQuery, appLanguage, fetchInitialSermons, styles]);
+
+  // Main Render: Virtualized FlatList for Title Tab & Search Results
+  if (activeTab === "Title" || searchQuery.length > 0) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <FlatList
+          data={sermons}
+          renderItem={renderSermonItem}
+          keyExtractor={keyExtractor}
+          ListHeaderComponent={renderHeader}
+          ListFooterComponent={renderFooter}
+          ListEmptyComponent={renderEmpty}
+          contentContainerStyle={{
+            paddingTop: insets.top + spacing[2],
+            paddingBottom: TAB_BAR_INSET,
+            paddingHorizontal: spacing[5],
+          }}
+          onEndReached={fetchNextPage}
+          onEndReachedThreshold={0.5}
+          initialNumToRender={10}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          removeClippedSubviews={Platform.OS === "android"}
+          keyboardShouldPersistTaps="handled"
+        />
+      </View>
+    );
+  }
+
+  // Render for Year, State, Series Tabs (Summary Views)
+  return (
+    <ScrollView
+      style={{ flex: 1, backgroundColor: colors.background }}
+      contentContainerStyle={{ paddingTop: insets.top + spacing[2], paddingBottom: TAB_BAR_INSET }}
+      keyboardShouldPersistTaps="handled"
+    >
+      {renderHeader}
+
+      <View style={{ paddingHorizontal: spacing[5] }}>
+        {/* YEAR TAB */}
+        {activeTab === "Year" && (
+          loadingTabSummary && yearSummaries.length === 0 ? (
+            <View style={{ gap: spacing[2] }}>
+              {[0, 1, 2, 3].map((i) => (
+                <Skeleton key={i} style={{ height: 60, borderRadius: radii.md, marginTop: spacing[2] }} />
+              ))}
+            </View>
+          ) : yearSummaries.length === 0 ? (
+            <EmptyState icon="calendar-outline" title="No sermons" message="No sermons found for this language." />
+          ) : (
+            yearSummaries.map((ys) => (
+              <ExpandableGroup
+                key={String(ys.year)}
+                title={String(ys.year)}
+                count={ys.sermonCount}
+                subtitle="Sermons"
+                items={[]}
+              />
+            ))
+          )
+        )}
+
+        {/* STATE TAB */}
+        {activeTab === "State" && (
+          loadingTabSummary && stateSummaries.length === 0 ? (
+            <View style={{ gap: spacing[2] }}>
+              {[0, 1, 2, 3].map((i) => (
+                <Skeleton key={i} style={{ height: 60, borderRadius: radii.md, marginTop: spacing[2] }} />
+              ))}
+            </View>
+          ) : stateSummaries.length === 0 ? (
+            <EmptyState icon="location-outline" title="No locations" message="No location data for this language." />
+          ) : (
+            stateSummaries.map((st) => (
+              <ExpandableGroup
+                key={st.state}
+                title={st.state}
+                count={st.sermonCount}
+                subtitle="Sermons"
+                items={[]}
+              />
+            ))
+          )
+        )}
+
+        {/* SERIES TAB */}
+        {activeTab === "Series" && (
+          loadingTabSummary && seriesSummaries.length === 0 ? (
+            <View style={{ gap: spacing[2] }}>
+              {[0, 1, 2, 3].map((i) => (
+                <Skeleton key={i} style={{ height: 56, borderRadius: radii.md, marginTop: spacing[2] }} />
+              ))}
+            </View>
+          ) : seriesSummaries.length === 0 ? (
+            <EmptyState icon="albums-outline" title="No series" message="No series available in this language." />
+          ) : (
+            seriesSummaries.map((item, index) => (
+              <Pressable
+                key={item.name}
+                onPress={() => router.push({ pathname: "/series", params: { title: item.name } })}
+                style={[
+                  styles.seriesRow,
+                  index < seriesSummaries.length - 1 && styles.seriesRowBorder,
+                ]}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.seriesRowTitle}>{item.name}</Text>
+                  <Text style={styles.seriesRowMeta}>{item.sermonCount} Sermons</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
+              </Pressable>
+            ))
+          )
+        )}
+      </View>
     </ScrollView>
   );
 }
@@ -450,11 +427,7 @@ const getStyles = (colors: any, theme: string) => StyleSheet.create({
   chipActive: { borderColor: colors.emerald, backgroundColor: colors.emerald },
   chipText: { fontSize: 13, color: colors.mutedForeground, fontFamily: typography.sansSemi },
   chipTextActive: { color: theme === "dark" ? colors.background : "#fff" },
-  count: { fontSize: 10, letterSpacing: 1.8, color: colors.mutedForeground, fontFamily: typography.sansSemi, marginBottom: spacing[3] },
-  sectionHeader: { fontSize: 18, color: colors.foreground, fontFamily: typography.serif, marginBottom: spacing[3] },
-  recentWrap: { flexDirection: "row", flexWrap: "wrap", gap: spacing[2] },
-  recentPill: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: radii.lg, backgroundColor: theme === "dark" ? "rgba(20, 26, 24, 0.7)" : "rgba(233, 236, 239, 0.7)", borderWidth: 1, borderColor: colors.hairline },
-  recentText: { fontSize: 12, fontFamily: typography.sans, color: colors.foreground },
+  count: { fontSize: 10, letterSpacing: 1.8, color: colors.mutedForeground, fontFamily: typography.sansSemi },
   seriesRow: { flexDirection: "row", alignItems: "center", paddingVertical: spacing[4], paddingHorizontal: spacing[2] },
   seriesRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.hairline },
   seriesRowTitle: { fontSize: 17, fontFamily: typography.serif, color: colors.foreground },

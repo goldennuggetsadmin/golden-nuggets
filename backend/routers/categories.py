@@ -61,7 +61,7 @@ async def update_category(category_id: str, body: CategoryUpdate, request: Reque
     await repo.update_one({"id": category_id}, updates)
     doc = await repo.find_one({"id": category_id})
     await activity_log(actor=current, action="category_updated", entity_type="category", entity_id=category_id, message=f"Updated “{doc.get('name')}”", request=request)
-    return doc
+    return clean(doc)
 
 
 @router.delete("/{category_id}")

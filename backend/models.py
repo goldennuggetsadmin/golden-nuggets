@@ -31,7 +31,7 @@ class UserOut(BaseModel):
 
 # ---------- Sermon ----------
 SermonStatus = Literal["draft", "published", "scheduled", "archived"]
-SermonSource = Literal["manual", "import"]
+SermonSource = Literal["manual", "import", "bulk_import"]
 
 
 class SermonBase(BaseModel):
@@ -59,8 +59,20 @@ class SermonBase(BaseModel):
     artwork_storage_path: Optional[str] = None
     pdf_english_url: Optional[str] = None
     pdf_english_storage_path: Optional[str] = None
+    english_pdf_storage_path: Optional[str] = None
+    english_pdf_hash: Optional[str] = None
+    english_pdf_size: Optional[int] = None
+    english_pdf_filename: Optional[str] = None
+    english_pdf_page_count: Optional[int] = None
+
     pdf_telugu_url: Optional[str] = None
     pdf_telugu_storage_path: Optional[str] = None
+    telugu_pdf_storage_path: Optional[str] = None
+    telugu_pdf_hash: Optional[str] = None
+    telugu_pdf_size: Optional[int] = None
+    telugu_pdf_filename: Optional[str] = None
+    telugu_pdf_page_count: Optional[int] = None
+
     official_pdf_hash: Optional[str] = None
     canonical_text: Optional[str] = None
     canonical_text_hash: Optional[str] = None
@@ -113,8 +125,18 @@ class SermonUpdate(BaseModel):
     artwork_storage_path: Optional[str] = None
     pdf_english_url: Optional[str] = None
     pdf_english_storage_path: Optional[str] = None
+    english_pdf_storage_path: Optional[str] = None
+    english_pdf_hash: Optional[str] = None
+    english_pdf_size: Optional[int] = None
+    english_pdf_filename: Optional[str] = None
+    english_pdf_page_count: Optional[int] = None
     pdf_telugu_url: Optional[str] = None
     pdf_telugu_storage_path: Optional[str] = None
+    telugu_pdf_storage_path: Optional[str] = None
+    telugu_pdf_hash: Optional[str] = None
+    telugu_pdf_size: Optional[int] = None
+    telugu_pdf_filename: Optional[str] = None
+    telugu_pdf_page_count: Optional[int] = None
     official_pdf_hash: Optional[str] = None
     canonical_text: Optional[str] = None
     canonical_text_hash: Optional[str] = None

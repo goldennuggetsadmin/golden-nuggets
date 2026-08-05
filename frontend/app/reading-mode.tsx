@@ -23,6 +23,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { api, NoteCollection, Testimony } from "@/src/api/client";
 import { useSettings } from "@/src/settings/SettingsContext";
 import { useToast } from "@/src/toast/ToastContext";
+import { DownloadModal } from "@/src/components/DownloadModal";
 import { usePlayer } from "@/src/player/PlayerContext";
 import { MiniPlayer } from "@/src/components/MiniPlayer";
 import { buildTranscriptDocument, Paragraph, TranscriptDocument } from "@/src/models/transcriptDocument";
@@ -49,6 +50,7 @@ export default function ReadingModeScreen() {
   // Action bottom sheet state
   const [selectedParagraph, setSelectedParagraph] = useState<Paragraph | null>(null);
   const [isActionSheetOpen, setIsActionSheetOpen] = useState(false);
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
 
   // Collection picker state
   const [isCollectionPickerOpen, setIsCollectionPickerOpen] = useState(false);
@@ -487,6 +489,15 @@ export default function ReadingModeScreen() {
             </Pressable>
           ) : null}
 
+          <Pressable
+            onPress={() => setShowDownloadModal(true)}
+            style={styles.langPill}
+            accessibilityRole="button"
+            accessibilityLabel="Download sermon audio or official transcript PDF"
+          >
+            <Ionicons name="download-outline" size={16} color={colors.foreground} />
+          </Pressable>
+
           <View style={styles.fontPill}>
             <Pressable onPress={() => persistFont(-1)} style={styles.fontBtn}>
               <Text style={styles.fontBtnText}>A-</Text>
@@ -742,6 +753,13 @@ export default function ReadingModeScreen() {
           </Animated.View>
         </View>
       ) : null}
+
+      {/* Download Modal for Audio and Official PDF */}
+      <DownloadModal
+        visible={showDownloadModal}
+        testimony={sermon}
+        onClose={() => setShowDownloadModal(false)}
+      />
     </View>
   );
 }

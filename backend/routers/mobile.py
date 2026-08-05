@@ -163,6 +163,22 @@ def _project_meeting(m: dict) -> dict:
 
 
 # ---------- Sermons ----------
+def _encode_cursor(created_at: str, item_id: str) -> str:
+    import base64, json
+    payload = json.dumps({"c": str(created_at or ""), "i": str(item_id or "")})
+    return base64.urlsafe_b64encode(payload.encode()).decode()
+
+
+def _decode_cursor(cursor_str: str) -> tuple[Optional[str], Optional[str]]:
+    import base64, json
+    try:
+        raw = base64.urlsafe_b64decode(cursor_str.encode()).decode()
+        data = json.loads(raw)
+        return data.get("c"), data.get("i")
+    except Exception:
+        return None, None
+
+
 @router.get("/sermons")
 async def list_sermons(
     q: Optional[str] = Query(None),
@@ -175,8 +191,20 @@ async def list_sermons(
     sort: str = "created_at",
     order: str = "desc",
     page: int = 1,
-    page_size: int = 10000,
+    page_size: int = 20,
+    cursor: Optional[str] = Query(None),
 ):
+    import time, logging
+    t_start = time.perf_counter()
+
+    # Determine effective page_size:
+    # 1. If caller explicitly passed 10000 -> legacy full-catalog query (preserve compatibility)
+    # 2. Standard queries clamp page_size between 1 and 100 (default 20)
+    if page_size == 10000 or page_size > 5000:
+        eff_page_size = 10000
+    else:
+        eff_page_size = max(1, min(100, page_size))
+
     filt: dict = {"status": "published", "is_archived": {"$ne": True}}
     if q and isinstance(q, str):
         filt["$or"] = [
@@ -196,28 +224,70 @@ async def list_sermons(
     if year:
         filt["year"] = year
     
-    # Single source of truth series/category query filter via shared sermon_service
     requested_series = series or category
-
     if category_id:
         filt["category_ids"] = category_id
     if featured is not None:
         filt["featured"] = featured
 
     repo = sermons_repo()
-    raw_items = await repo.find(
-        filt,
-        sort=[(sort, -1 if order == "desc" else 1)],
-    )
-    items = filter_sermons_by_series(raw_items, requested_series)
-    total = len(items)
-    
-    # Apply pagination on filtered items
-    start_idx = max(0, (page - 1) * page_size)
-    paginated_items = items[start_idx : start_idx + page_size]
+
+    # Apply Keyset / Cursor Pagination filtering if cursor provided
+    cursor_c, cursor_i = _decode_cursor(cursor) if cursor else (None, None)
+
+    # For paginated requests (eff_page_size <= 100), fetch limit = eff_page_size + 1 to check has_more
+    if eff_page_size <= 100 and not requested_series:
+        skip_val = 0 if cursor else max(0, (page - 1) * eff_page_size)
+        raw_items = await repo.find(
+            filt,
+            sort=[(sort, -1 if order == "desc" else 1)],
+            skip=skip_val,
+            limit=eff_page_size + 1,
+        )
+        total_count = await repo.count(filt)
+    else:
+        raw_items = await repo.find(
+            filt,
+            sort=[(sort, -1 if order == "desc" else 1)],
+        )
+        total_count = len(raw_items)
+
+    t_db = time.perf_counter()
+
+    filtered_items = filter_sermons_by_series(raw_items, requested_series) if requested_series else raw_items
+
+    # Determine pagination slice and next_cursor
+    has_more = False
+    next_cursor = None
+    if eff_page_size <= 100 and len(filtered_items) > eff_page_size:
+        has_more = True
+        paginated_items = filtered_items[:eff_page_size]
+    else:
+        paginated_items = filtered_items
+
+    if paginated_items and has_more:
+        last_item = paginated_items[-1]
+        next_cursor = _encode_cursor(last_item.get("created_at"), last_item.get("id"))
 
     projected_items = [_project_sermon(s) for s in paginated_items]
-    return {"items": projected_items, "total": total, "page": page, "page_size": page_size}
+    t_project = time.perf_counter()
+
+    db_time_ms = round((t_db - t_start) * 1000, 2)
+    ser_time_ms = round((t_project - t_db) * 1000, 2)
+    total_time_ms = round((t_project - t_start) * 1000, 2)
+
+    logging.getLogger(__name__).info(
+        f"[Timing Trace] GET /sermons | DB Query: {db_time_ms}ms | Serialization: {ser_time_ms}ms | Total: {total_time_ms}ms | Returned: {len(projected_items)} | Total DB: {total_count}"
+    )
+
+    return {
+        "items": projected_items,
+        "total": total_count,
+        "page": page,
+        "page_size": eff_page_size,
+        "has_more": has_more,
+        "next_cursor": next_cursor,
+    }
 
 
 @router.get("/years")
@@ -258,6 +328,63 @@ async def list_years(language: Optional[str] = None):
         for yr, count in sorted(counts.items(), key=lambda x: x[0], reverse=True)
     ]
     return sorted_years
+
+
+@router.get("/series")
+async def list_series_summary(language: Optional[str] = None):
+    """Return summary of published series grouped by name in alphabetical order."""
+    filt: dict = {"status": "published", "is_archived": {"$ne": True}}
+    if language:
+        l_lower = language.lower()
+        if l_lower in ["en", "english"]:
+            filt["language"] = {"$in": ["en", "English", "english", "EN"]}
+        elif l_lower in ["te", "telugu"]:
+            filt["language"] = {"$in": ["te", "Telugu", "telugu", "TE"]}
+        else:
+            filt["language"] = language
+
+    repo = sermons_repo()
+    raw_items = await repo.find(filt)
+    counts: dict[str, int] = {}
+    for s in raw_items:
+        ser = s.get("series") or s.get("category") or "General"
+        ser_clean = str(ser).strip() or "General"
+        counts[ser_clean] = counts.get(ser_clean, 0) + 1
+
+    sorted_series = [
+        {"name": name, "sermonCount": count}
+        for name, count in sorted(counts.items(), key=lambda x: (1 if x[0] == "General" else 0, x[0].lower()))
+    ]
+    return sorted_series
+
+
+@router.get("/states")
+async def list_states_summary(language: Optional[str] = None):
+    """Return summary of published sermons grouped by state/location in alphabetical order."""
+    filt: dict = {"status": "published", "is_archived": {"$ne": True}}
+    if language:
+        l_lower = language.lower()
+        if l_lower in ["en", "english"]:
+            filt["language"] = {"$in": ["en", "English", "english", "EN"]}
+        elif l_lower in ["te", "telugu"]:
+            filt["language"] = {"$in": ["te", "Telugu", "telugu", "TE"]}
+        else:
+            filt["language"] = language
+
+    repo = sermons_repo()
+    raw_items = await repo.find(filt)
+    counts: dict[str, int] = {}
+    for s in raw_items:
+        st = s.get("state") or s.get("location")
+        if st and str(st).strip():
+            st_clean = str(st).strip()
+            counts[st_clean] = counts.get(st_clean, 0) + 1
+
+    sorted_states = [
+        {"state": st, "sermonCount": count}
+        for st, count in sorted(counts.items(), key=lambda x: x[0].lower())
+    ]
+    return sorted_states
 
 
 @router.get("/sermons/{sermon_id}")

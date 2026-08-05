@@ -3,12 +3,18 @@ from typing import Iterable
 
 
 def clean(doc: dict | None) -> dict | None:
-    """Return a shallow copy of `doc` with any '_id' key removed."""
+    """Return a shallow copy of `doc` with '_id' removed and datetime objects formatted to ISO strings."""
     if doc is None:
         return None
-    if "_id" in doc:
-        doc = {k: v for k, v in doc.items() if k != "_id"}
-    return doc
+    d = {}
+    for k, v in doc.items():
+        if k == "_id":
+            continue
+        if hasattr(v, "isoformat"):
+            d[k] = v.isoformat()
+        else:
+            d[k] = v
+    return d
 
 
 def clean_list(docs: Iterable[dict]) -> list[dict]:

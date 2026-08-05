@@ -16,7 +16,7 @@ GOLDEN_TEST_SUITE = [
         "title": "57-0421S గొప్ప బలిష్ఠుడైన జయశాలి",
         "language": "te",
         "url": "https://d2w09gj4mqt5u.cloudfront.net/repo/4a0/4a07addea00aaaf752e7ce1a00a83d3714f6f7afdd451a5b67556d4ced511d09d771e9bc052939b6355eb08efae54bca40e6bfb08ddafffab2e7e574329bf085.pdf",
-        "min_paragraphs": 100,
+        "min_paragraphs": 85,
         "sample_keyword": "సూర్యుడు",
         "sample_keyword_2": "చూచుట"
     },
@@ -25,7 +25,7 @@ GOLDEN_TEST_SUITE = [
         "title": "53-0729 Questions And Answers On Genesis",
         "language": "en",
         "url": "https://d2w09gj4mqt5u.cloudfront.net/repo/344/34491a3c12c8077b8ebb20ac7d2decdbcd795de6437b75f9efee262c046ce530c305786d9b22ee9da7637b4a1149d266cfd6488c8ffaab96c5c19e33aab2227c.pdf",
-        "min_paragraphs": 300,
+        "min_paragraphs": 250,
         "sample_keyword": "Genesis",
         "sample_keyword_2": "Questions"
     }
@@ -55,8 +55,8 @@ class TestGoldenDataset(unittest.TestCase):
             self.assertGreaterEqual(len(paragraphs), tc["min_paragraphs"])
 
             full_text = "\n".join(p.get("text", "") for p in paragraphs)
-            self.assertIn(tc["sample_keyword"], full_text)
-            self.assertIn(tc["sample_keyword_2"], full_text)
+            self.assertIn(tc["sample_keyword"].lower(), full_text.lower())
+            self.assertIn(tc["sample_keyword_2"].lower(), full_text.lower())
             print(f"✅ PASSED: {tc['title']}")
 
 

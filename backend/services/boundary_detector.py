@@ -41,10 +41,21 @@ class BranhamBoundaryDetector(BaseBoundaryDetector):
         # 1. Classification Pass
         state = "FRONT_MATTER" # States: FRONT_MATTER, BODY, BACK_MATTER
         
-        for p in paragraphs:
+        # Regression Fix
+        # Root Cause: State transition to BACK_MATTER occurred prematurely when front-matter copyright paragraphs contained shared keywords ("voice of god recordings", "jeffersonville", "p.o. box") before sermon body paragraphs were processed.
+        # Why this line changed: Added guards (seen_numbered_body and position checks) so front copyright disclaimers are categorized correctly as front matter without triggering early BACK_MATTER termination.
+        # Why no other code changed: The state machine structure, enum types, and return dictionary contracts are preserved identically.
+
+        total_paras = len(paragraphs)
+        seen_numbered_body = False
+
+        for idx, p in enumerate(paragraphs):
             text = p.get("text", "").lower()
             p_num = p.get("paragraph_number")
             
+            if p_num is not None and p_num >= 1:
+                seen_numbered_body = True
+
             has_front_keyword = any(k in text for k in self.VGR_FRONT_KEYWORDS)
             has_back_keyword = any(k in text for k in self.VGR_BACK_KEYWORDS)
             
@@ -52,20 +63,22 @@ class BranhamBoundaryDetector(BaseBoundaryDetector):
                 if has_front_keyword:
                     classes.append(SectionClass.PUBLISHER_FRONT_MATTER)
                 else:
-                    # The first non-front-matter paragraph transitions us into the Sermon Block.
-                    # This could be the TITLE_PAGE. We'll label it TITLE_PAGE for now,
-                    # and subsequent ones as SERMON_BODY.
                     classes.append(SectionClass.TITLE_PAGE)
                     state = "BODY"
                     seen_sermon = True
                     
             elif state == "BODY":
-                if has_back_keyword:
-                    # Transition to back matter
+                # Only transition to BACK_MATTER if we have processed body paragraphs AND are in the latter half of the document
+                # OR if explicit back-matter catalog indicators appear near the document end.
+                is_latter_half = idx > total_paras * 0.50
+                is_explicit_catalog = any(k in text for k in ["audio tapes", "publications", "catalog", "appreciation", "permission"])
+                
+                if has_back_keyword and (is_latter_half or is_explicit_catalog) and seen_numbered_body:
                     classes.append(SectionClass.PUBLISHER_BACK_MATTER)
                     state = "BACK_MATTER"
+                elif has_front_keyword and not seen_numbered_body:
+                    classes.append(SectionClass.PUBLISHER_FRONT_MATTER)
                 else:
-                    # In BODY state, everything is SERMON_BODY, paragraph numbers just increase confidence later.
                     classes.append(SectionClass.SERMON_BODY)
                     
             elif state == "BACK_MATTER":
