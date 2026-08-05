@@ -88,7 +88,13 @@ export default function SearchScreen() {
         setAllSermons(sorted);
         cacheStore.set(`search_master_v3_${lang}`, sorted);
         fetchFailed = false;
-        console.log(`[SearchScreen] API sync complete: ${sorted.length} master sermons for lang "${lang}"`);
+
+        console.log("================================──────────────────────────────");
+        console.log(`[SearchScreen Runtime Log] Target Base URL: "${api.base}"`);
+        console.log(`[SearchScreen Runtime Log] Requested Language: "${lang}"`);
+        console.log(`[SearchScreen Runtime Log] Sermons Received from API: ${itemsRes.length}`);
+        console.log(`[SearchScreen Runtime Log] Sermons Rendered in UI: ${sorted.length}`);
+        console.log("================================──────────────────────────────");
       } else if (fetchFailed) {
         console.warn(`[SearchScreen] API fetch encountered connection error for lang "${lang}"`);
       }

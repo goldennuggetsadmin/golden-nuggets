@@ -200,7 +200,10 @@ class PostgreSQLRepository(BaseRepository):
                 params["limit"] = str(batch_limit)
                 params["offset"] = str(current_offset)
 
-                res = await client.get(url, headers=self._get_supabase_headers(), params=params, timeout=5.0)
+                req_headers = self._get_supabase_headers()
+                req_headers["Range"] = f"{current_offset}-{current_offset + batch_limit - 1}"
+
+                res = await client.get(url, headers=req_headers, params=params, timeout=5.0)
                 res.raise_for_status()
                 batch = res.json()
                 if not batch or not isinstance(batch, list):
