@@ -176,9 +176,9 @@ async function j<T>(path: string, init: RequestInit = {}, retries = 1): Promise<
 // Always send the full name to the backend so queries match DB records correctly.
 function _toLangParam(code?: string): string | undefined {
   if (!code) return undefined;
-  if (code === "en") return "English";
-  if (code === "te") return "Telugu";
-  return code; // pass-through for anything else
+  if (code === "en") return "en";
+  if (code === "te") return "te";
+  return code;
 }
 
 // ------------------------------ production API endpoints
@@ -260,9 +260,17 @@ export const api = {
 
     try {
       const res = await j<{ items: BackendSermon[]; total: number }>(`/sermons?${qs}`);
+      const rawCount = res?.items ? res.items.length : 0;
       const favs = await userStore.getFavorites();
       const progs = await userStore.getProgressMap();
       const adapted = await Promise.all((res.items || []).map((s) => adaptSermon(s, favs, progs)));
+
+      console.log(`[API Trace] Received from API: ${rawCount}`);
+      console.log(`[API Trace] After parse & adapt: ${adapted.length}`);
+      console.log(`[API Trace] Language filter param: "${langParam || "all"}"`);
+      console.log(`[API Trace] Search filter query: "${q || "none"}"`);
+      console.log(`[API Trace] Rendered count: ${adapted.length}`);
+
       if (adapted.length > 0) {
         if (!q && !category_id) {
           cacheStore.set(masterCacheKey, adapted);

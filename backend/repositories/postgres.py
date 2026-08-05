@@ -114,11 +114,8 @@ SERMON_SUMMARY_COLS = (
 _pool = None
 
 def get_pool():
-    global _pool
-    if _pool is None:
-        import db
-        _pool = db.get_pool()
-    return _pool
+    import db
+    return db.get_pool()
 
 _HTTPX_CLIENT: Optional[httpx.AsyncClient] = None
 
@@ -165,7 +162,8 @@ class PostgreSQLRepository(BaseRepository):
                             for sk, sv in sub.items():
                                 if isinstance(sv, dict):
                                     if "$in" in sv and sv["$in"]:
-                                        or_conds.append(f"{sk}.in.({','.join(str(x) for x in sv['$in'])})")
+                                        quoted = ",".join(f'"{x}"' for x in sv["$in"])
+                                        or_conds.append(f"{sk}.in.({quoted})")
                                     elif "$regex" in sv:
                                         or_conds.append(f"{sk}.ilike.*{sv['$regex']}*")
                                     elif "$ne" in sv:
@@ -178,7 +176,8 @@ class PostgreSQLRepository(BaseRepository):
 
                     if isinstance(v, dict):
                         if "$in" in v and v["$in"]:
-                            base_params[f"{k}"] = f"in.({','.join(str(x) for x in v['$in'])})"
+                            quoted = ",".join(f'"{x}"' for x in v["$in"])
+                            base_params[f"{k}"] = f"in.({quoted})"
                         elif "$gte" in v:
                             base_params[f"{k}"] = f"gte.{v['$gte']}"
                         elif "$lte" in v:
@@ -334,7 +333,8 @@ class PostgreSQLRepository(BaseRepository):
                             if "$ne" in v:
                                 params_rest[k] = f"neq.{v['$ne']}"
                             elif "$in" in v and v["$in"]:
-                                params_rest[k] = f"in.({','.join(str(x) for x in v['$in'])})"
+                                quoted = ",".join(f'"{x}"' for x in v["$in"])
+                                params_rest[k] = f"in.({quoted})"
                             elif "$gte" in v:
                                 params_rest[k] = f"gte.{v['$gte']}"
                             elif "$lte" in v:
