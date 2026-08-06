@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Layers, Loader2, X, Search, GripVertical } from "lucide-react";
+import { Plus, Pencil, Trash2, Layers, Loader2, X, Search, GripVertical, Eye, ChevronDown, ChevronUp, XCircle, FileText } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -96,7 +96,10 @@ export function saveManagedSeriesName(name) {
 }
 
 // ── Sortable Row ──────────────────────────────────────────────────────────────
-function SortableSeriesRow({ item, onEdit, onDelete, isDragging }) {
+function SortableSeriesRow({ item, onEdit, onDelete }) {
+  const [expanded, setExpanded] = useState(false);
+  const qc = useQueryClient();
+
   const {
     attributes,
     listeners,
@@ -112,53 +115,137 @@ function SortableSeriesRow({ item, onEdit, onDelete, isDragging }) {
     opacity: isSelfDragging ? 0.4 : 1,
   };
 
+  const { data: sermonsData, isLoading: isLoadingSermons } = useQuery({
+    queryKey: ["sermons-in-series", item.name],
+    queryFn: async () => {
+      const res = await api.get(`/admin/sermons?series=${encodeURIComponent(item.name)}&limit=100`);
+      return res.data?.items || res.data || [];
+    },
+    enabled: expanded,
+  });
+
+  const removeSermonMut = useMutation({
+    mutationFn: async (sermonId) => {
+      await api.patch(`/admin/sermons/${sermonId}`, { series: "General" });
+    },
+    onSuccess: () => {
+      toast.success("Sermon removed from series");
+      qc.invalidateQueries({ queryKey: ["sermons-in-series", item.name] });
+      qc.invalidateQueries({ queryKey: ["sermons-series-lookup"] });
+      qc.invalidateQueries({ queryKey: ["sermons"] });
+    },
+    onError: () => toast.error("Failed to remove sermon from series"),
+  });
+
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className="flex items-center justify-between p-4 transition hover:bg-surface-2/40"
-    >
-      {/* Drag Handle */}
-      <button
-        {...attributes}
-        {...listeners}
-        className="mr-3 cursor-grab touch-none text-muted-foreground/40 hover:text-muted-foreground transition active:cursor-grabbing"
-        aria-label="Reorder"
-        tabIndex={0}
-      >
-        <GripVertical className="h-5 w-5" />
-      </button>
+    <div ref={setNodeRef} style={style} className="divide-y hairline">
+      <div className="flex items-center justify-between p-4 transition hover:bg-surface-2/40">
+        {/* Drag Handle */}
+        <button
+          {...attributes}
+          {...listeners}
+          className="mr-3 cursor-grab touch-none text-muted-foreground/40 hover:text-muted-foreground transition active:cursor-grabbing"
+          aria-label="Reorder"
+          tabIndex={0}
+        >
+          <GripVertical className="h-5 w-5" />
+        </button>
 
-      {/* Series Icon + Info */}
-      <div className="flex items-center gap-4 min-w-0 flex-1">
-        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/12 text-primary">
-          <Layers className="h-5 w-5" />
+        {/* Series Icon + Info */}
+        <div
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-4 min-w-0 flex-1 cursor-pointer select-none"
+        >
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/12 text-primary">
+            <Layers className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <div className="font-serif text-lg text-foreground truncate flex items-center gap-2">
+              {toTitleCase(item.name)}
+              {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+            </div>
+            <div className="text-xs text-gold">{item.count} Sermon{item.count !== 1 ? "s" : ""}</div>
+          </div>
         </div>
-        <div className="min-w-0">
-          <div className="font-serif text-lg text-foreground truncate">{toTitleCase(item.name)}</div>
-          <div className="text-xs text-gold">{item.count} Sermon{item.count !== 1 ? "s" : ""}</div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition"
+          >
+            <Eye className="h-3.5 w-3.5" /> {expanded ? "Hide Sermons" : "View Sermons"}
+          </button>
+          <button
+            onClick={() => onEdit(item)}
+            className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+          >
+            <Pencil className="h-3.5 w-3.5" /> Edit
+          </button>
+          <button
+            onClick={() => {
+              if (window.confirm(`Delete series "${toTitleCase(item.name)}"?\n\nThis will clear the series from all associated sermons.`)) {
+                onDelete(item.name);
+              }
+            }}
+            className="inline-flex items-center gap-1.5 text-xs text-destructive hover:underline"
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Delete
+          </button>
         </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={() => onEdit(item)}
-          className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
-        >
-          <Pencil className="h-3.5 w-3.5" /> Edit
-        </button>
-        <button
-          onClick={() => {
-            if (window.confirm(`Delete series "${toTitleCase(item.name)}"?\n\nThis will clear the series from all associated sermons.`)) {
-              onDelete(item.name);
-            }
-          }}
-          className="inline-flex items-center gap-1.5 text-xs text-destructive hover:underline"
-        >
-          <Trash2 className="h-3.5 w-3.5" /> Delete
-        </button>
-      </div>
+      {/* Expandable Sermon List Panel */}
+      {expanded && (
+        <div className="bg-surface-1/50 p-4 pl-14 space-y-3 border-t hairline">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Sermons inside "{toTitleCase(item.name)}" ({sermonsData?.length || 0})
+            </h4>
+          </div>
+
+          {isLoadingSermons ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading sermons...
+            </div>
+          ) : !sermonsData || sermonsData.length === 0 ? (
+            <div className="text-xs text-muted-foreground py-2 italic">
+              No sermons found in this series.
+            </div>
+          ) : (
+            <div className="divide-y hairline rounded-xl border hairline bg-card/60 overflow-hidden max-h-[350px] overflow-y-auto">
+              {sermonsData.map((sermon) => (
+                <div key={sermon.id} className="flex items-center justify-between p-3 text-xs hover:bg-surface-2/30 transition">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <FileText className="h-4 w-4 shrink-0 text-gold" />
+                    <div className="min-w-0">
+                      <div className="font-medium text-foreground truncate">
+                        {sermon.sermon_code ? <span className="text-gold font-mono mr-2">[{sermon.sermon_code}]</span> : null}
+                        {sermon.title}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        {sermon.speaker || "Rev. William Marrion Branham"} • {sermon.date || sermon.year || "Unknown Date"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    disabled={removeSermonMut.isPending}
+                    onClick={() => {
+                      if (window.confirm(`Remove "${sermon.title}" from "${item.name}" series?`)) {
+                        removeSermonMut.mutate(sermon.id);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 text-xs text-destructive hover:bg-destructive/10 px-2.5 py-1.5 rounded-lg transition"
+                  >
+                    <XCircle className="h-3.5 w-3.5" /> Remove from Series
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
