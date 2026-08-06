@@ -13,10 +13,12 @@ interface ExpandableGroupProps {
   items: Testimony[];
 }
 
-export function ExpandableGroup({ title, count, subtitle = "Last Updated", items }: ExpandableGroupProps) {
+export function ExpandableGroup({ title, count, subtitle = "Last Updated", items = [] }: ExpandableGroupProps) {
   const [expanded, setExpanded] = useState(false);
   const { colors, theme } = useTheme();
   const styles = getStyles(colors, theme);
+
+  const safeItems = Array.isArray(items) ? items : [];
 
   return (
     <View style={styles.container}>
@@ -30,7 +32,7 @@ export function ExpandableGroup({ title, count, subtitle = "Last Updated", items
 
       {expanded ? (
         <View style={styles.content}>
-          {items.map((sermon) => (
+          {safeItems.map((sermon) => (
             <SermonCard key={sermon.id} sermon={sermon} horizontal />
           ))}
         </View>

@@ -356,7 +356,7 @@ export default function SearchScreen() {
                 title={String(ys.year)}
                 count={ys.sermonCount}
                 subtitle="Sermons"
-                items={searchResults.filter((s) => String(s.year) === String(ys.year))}
+                items={(sermons || []).filter((s) => String(s.year) === String(ys.year))}
               />
             ))
           )
@@ -379,7 +379,7 @@ export default function SearchScreen() {
                 title={st.state}
                 count={st.sermonCount}
                 subtitle="Sermons"
-                items={searchResults.filter((s) => s.state && String(s.state).trim() === String(st.state).trim())}
+                items={(sermons || []).filter((s) => s.state && String(s.state).trim() === String(st.state).trim())}
               />
             ))
           )
