@@ -16,14 +16,14 @@ const BACKEND_URL = getBackendUrl();
 export const api = axios.create({
   baseURL: `${BACKEND_URL}/api/v1`,
   withCredentials: true,
-  timeout: 15000,
+  timeout: 30000,
 });
 
-/** Dedicated auth client with strict 10s timeout for fast-failing auth requests */
+/** Dedicated auth client with 30s timeout for auth requests */
 export const apiAuth = axios.create({
   baseURL: `${BACKEND_URL}/api/v1`,
   withCredentials: true,
-  timeout: 10000,
+  timeout: 30000,
 });
 
 api.interceptors.request.use((config) => {
