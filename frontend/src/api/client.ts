@@ -58,6 +58,8 @@ export interface Testimony {
   language: string;
   duration: number;
   verse?: string | null;
+  date_code?: string | null;
+  code?: string | null;
   art_url?: string | null;
   art_thumb_url?: string | null;
   audio_url?: string | null;
@@ -223,6 +225,9 @@ export const api = {
   listTestimonies: async (params: Record<string, string | boolean | number> = {}): Promise<Testimony[]> => {
     const paramsWithPageSize = { page_size: 10000, ...params };
     const cacheKey = `sermons_v3_${JSON.stringify(paramsWithPageSize)}`;
+    const cached = await cacheStore.get<Testimony[]>(cacheKey);
+    if (cached && cached.length > 0) return cached;
+
     const qs = new URLSearchParams();
     Object.entries(paramsWithPageSize).forEach(([k, v]) => qs.set(k, String(v)));
     const res = await j<{ items: BackendSermon[]; total: number }>(`/sermons${qs.toString() ? `?${qs}` : ""}`);
@@ -409,8 +414,26 @@ export const api = {
 
   // Highlights (Client-Side Storage)
   listHighlights: (testimony_id?: string) => userStore.getHighlights(testimony_id),
-  createHighlight: (testimony_id: string, quote: string, language = "English", paragraph_number = 1, start_seconds?: number) =>
-    userStore.addHighlight(testimony_id, quote, language, paragraph_number, start_seconds),
+  createHighlight: (
+    testimony_id: string,
+    quote: string,
+    language = "English",
+    paragraph_number = 1,
+    start_seconds?: number,
+    testimony_title?: string,
+    speaker?: string,
+    date_code?: string
+  ) =>
+    userStore.addHighlight(
+      testimony_id,
+      quote,
+      language,
+      paragraph_number,
+      start_seconds,
+      testimony_title,
+      speaker,
+      date_code
+    ),
   deleteHighlight: async (id: string) => ({ deleted: await userStore.deleteHighlight(id) }),
   clearAllHighlights: async () => ({ cleared: await userStore.clearAllHighlights() }),
 
