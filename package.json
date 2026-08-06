@@ -1,6 +1,7 @@
 {
   "name": "golden-nuggets-admin",
   "version": "1.0.0",
+  "packageManager": "npm@11.12.1",
   "private": true,
   "scripts": {
     "start": "craco start",
