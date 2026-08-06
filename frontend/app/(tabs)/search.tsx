@@ -357,6 +357,7 @@ export default function SearchScreen() {
                 count={ys.sermonCount}
                 subtitle="Sermons"
                 items={(sermons || []).filter((s) => String(s.year) === String(ys.year))}
+                fetchItems={() => api.listTestimonies({ year: ys.year, language: appLanguage })}
               />
             ))
           )
@@ -380,6 +381,7 @@ export default function SearchScreen() {
                 count={st.sermonCount}
                 subtitle="Sermons"
                 items={(sermons || []).filter((s) => s.state && String(s.state).trim() === String(st.state).trim())}
+                fetchItems={() => api.listTestimonies({ state: st.state, language: appLanguage })}
               />
             ))
           )

@@ -10,19 +10,36 @@ interface ExpandableGroupProps {
   title: string;
   count: number;
   subtitle?: string;
-  items: Testimony[];
+  items?: Testimony[];
+  fetchItems?: () => Promise<Testimony[]>;
 }
 
-export function ExpandableGroup({ title, count, subtitle = "Last Updated", items = [] }: ExpandableGroupProps) {
+export function ExpandableGroup({ title, count, subtitle = "Last Updated", items = [], fetchItems }: ExpandableGroupProps) {
   const [expanded, setExpanded] = useState(false);
+  const [fetchedItems, setFetchedItems] = useState<Testimony[]>([]);
+  const [loading, setLoading] = useState(false);
   const { colors, theme } = useTheme();
   const styles = getStyles(colors, theme);
 
-  const safeItems = Array.isArray(items) ? items : [];
+  const displayItems = items && items.length > 0 ? items : fetchedItems;
+
+  const handlePress = () => {
+    const nextState = !expanded;
+    setExpanded(nextState);
+    if (nextState && displayItems.length === 0 && fetchItems && !loading) {
+      setLoading(true);
+      fetchItems()
+        .then((res) => {
+          if (Array.isArray(res)) setFetchedItems(res);
+        })
+        .catch((err) => console.error(`[ExpandableGroup] Error fetching items for ${title}:`, err))
+        .finally(() => setLoading(false));
+    }
+  };
 
   return (
     <View style={styles.container}>
-      <Pressable onPress={() => setExpanded((v) => !v)} style={styles.header}>
+      <Pressable onPress={handlePress} style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.meta}>{count} Sermons • {subtitle}</Text>
@@ -32,9 +49,20 @@ export function ExpandableGroup({ title, count, subtitle = "Last Updated", items
 
       {expanded ? (
         <View style={styles.content}>
-          {safeItems.map((sermon) => (
-            <SermonCard key={sermon.id} sermon={sermon} horizontal />
-          ))}
+          {loading ? (
+            <View style={{ paddingVertical: spacing[4], alignItems: "center" }}>
+              <ActivityIndicator size="small" color={colors.emerald} />
+              <Text style={{ color: colors.mutedForeground, marginTop: 8, fontSize: 12 }}>Loading sermons…</Text>
+            </View>
+          ) : displayItems.length === 0 ? (
+            <Text style={{ color: colors.mutedForeground, paddingVertical: spacing[2], fontSize: 12 }}>No sermons found.</Text>
+          ) : (
+            displayItems.map((sermon) => (
+              <View key={sermon.id} style={{ marginBottom: spacing[3] }}>
+                <SermonCard sermon={sermon} horizontal />
+              </View>
+            ))
+          )}
         </View>
       ) : null}
     </View>
