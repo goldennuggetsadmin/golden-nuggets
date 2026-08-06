@@ -3,9 +3,11 @@ import axios from "axios";
 const getBackendUrl = () => {
   if (process.env.REACT_APP_BACKEND_URL) return process.env.REACT_APP_BACKEND_URL;
   if (typeof window !== "undefined" && window.location.hostname) {
-    return `http://${window.location.hostname}:8000`;
+    if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+      return `http://${window.location.hostname}:8000`;
+    }
   }
-  return "http://127.0.0.1:8000";
+  return "https://web-production-1fc9d.up.railway.app";
 };
 
 const BACKEND_URL = getBackendUrl();
@@ -56,7 +58,11 @@ api.interceptors.response.use(
         return axios(originalRequest);
       } catch (refreshErr) {
         localStorage.removeItem("gn_access_token");
-        if (typeof window !== "undefined" && !window.location.pathname.includes("/login")) {
+        if (
+          typeof window !== "undefined" &&
+          !window.location.pathname.includes("/login") &&
+          !window.location.pathname.includes("/reset-password")
+        ) {
           window.location.href = "/login";
         }
         return Promise.reject(refreshErr);
