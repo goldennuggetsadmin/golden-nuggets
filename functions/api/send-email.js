@@ -1,4 +1,4 @@
-export async function onRequestPost(context) {
+async function handleSend(context) {
   try {
     const body = await context.request.json();
     const { to, subject, text, html, secret } = body;
@@ -64,4 +64,21 @@ export async function onRequestPost(context) {
       }
     );
   }
+}
+
+export async function onRequest(context) {
+  if (context.request.method === "OPTIONS") {
+    return new Response(null, {
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      },
+    });
+  }
+  return handleSend(context);
+}
+
+export async function onRequestPost(context) {
+  return handleSend(context);
 }
