@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loader2, KeyRound, CheckCircle2, X } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, formatApiErrorDetail } from "@/lib/api";
 
 export default function Login() {
   const { user, login, error } = useAuth();
@@ -35,7 +35,8 @@ export default function Login() {
       await api.post("/auth/forgot-password");
       setForgotSuccess(true);
     } catch (err) {
-      setForgotError(err.response?.data?.detail || "Unable to send password reset request. Please try again.");
+      const msg = formatApiErrorDetail(err) || "Unable to send password reset request. Please check your connection and try again.";
+      setForgotError(msg);
     } finally {
       setForgotBusy(false);
     }
