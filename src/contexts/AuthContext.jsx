@@ -22,25 +22,23 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
-  const login = useCallback(async (email, password) => {
+  const login = useCallback(async (arg1, arg2) => {
     setError("");
+    let email = "goldennuggets.admin@gmail.com";
+    let password = arg1;
+    if (arg2 !== undefined) {
+      email = arg1;
+      password = arg2;
+    }
     const t0 = performance.now();
-    console.log(`[${new Date().toISOString()}] [3] Mutation started for ${email}`);
-    
     try {
-      console.log(`[${new Date().toISOString()}] [4] HTTP request sent to POST /auth/login (10s timeout max)`);
       const { data } = await apiAuth.post("/auth/login", { email, password });
-      
-      console.log(`[${new Date().toISOString()}] [11] Frontend received response in ${Math.round(performance.now() - t0)}ms`);
       if (data?.access_token) {
-        console.log(`[${new Date().toISOString()}] [12] Token stored in localStorage`);
         localStorage.setItem("gn_access_token", data.access_token);
       }
-      console.log(`[${new Date().toISOString()}] [13] Navigation state updated (setUser)`);
       setUser(data);
       return true;
     } catch (e) {
-      console.log(`[${new Date().toISOString()}] [11] Authentication request failed / timed out in ${Math.round(performance.now() - t0)}ms: ${e.message}`);
       let msg = "Unable to contact server. Please check your internet connection or try again.";
       if (e.response?.data?.detail) {
         msg = formatApiErrorDetail(e.response.data.detail) || msg;
