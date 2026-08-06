@@ -180,7 +180,9 @@ export default function SearchScreen() {
 
   // FlatList Render Item Callback for Sermon Cards
   const renderSermonItem = useCallback(({ item }: { item: Testimony }) => (
-    <SermonCard sermon={item} horizontal />
+    <View style={{ paddingHorizontal: spacing[5] }}>
+      <SermonCard sermon={item} horizontal />
+    </View>
   ), []);
 
   // Key Extractor
@@ -224,7 +226,7 @@ export default function SearchScreen() {
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: spacing[5], gap: spacing[2], paddingTop: spacing[4], paddingBottom: spacing[4] }}
+        contentContainerStyle={{ paddingHorizontal: spacing[5], gap: spacing[2], paddingTop: spacing[4], paddingBottom: spacing[2] }}
       >
         {SEARCH_TABS.map((tab) => {
           const active = activeTab === tab;
@@ -243,7 +245,7 @@ export default function SearchScreen() {
 
       {/* Results Header Label */}
       {(searchQuery.length > 0 || activeTab === "Title") && (
-        <View style={{ paddingHorizontal: spacing[5], marginBottom: spacing[2] }}>
+        <View style={{ paddingHorizontal: spacing[5], marginTop: spacing[3], marginBottom: spacing[3] }}>
           <Text style={styles.count}>
             {loadingInitial
               ? "SEARCHING…"
@@ -314,7 +316,6 @@ export default function SearchScreen() {
           contentContainerStyle={{
             paddingTop: insets.top + spacing[2],
             paddingBottom: TAB_BAR_INSET,
-            paddingHorizontal: spacing[5],
           }}
           onEndReached={fetchNextPage}
           onEndReachedThreshold={0.5}
@@ -355,7 +356,7 @@ export default function SearchScreen() {
                 title={String(ys.year)}
                 count={ys.sermonCount}
                 subtitle="Sermons"
-                items={[]}
+                items={searchResults.filter((s) => String(s.year) === String(ys.year))}
               />
             ))
           )
@@ -378,7 +379,7 @@ export default function SearchScreen() {
                 title={st.state}
                 count={st.sermonCount}
                 subtitle="Sermons"
-                items={[]}
+                items={searchResults.filter((s) => s.state && String(s.state).trim() === String(st.state).trim())}
               />
             ))
           )
