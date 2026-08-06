@@ -121,15 +121,29 @@ export async function onRequestPost(context) {
   }
 }
 
+export async function onRequestGet(context) {
+  return new Response(JSON.stringify({ service: "Cloudflare SMTPS Relay", status: "online" }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" }
+  });
+}
+
+export async function onRequestOptions(context) {
+  return new Response(null, {
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    },
+  });
+}
+
 export async function onRequest(context) {
   if (context.request.method === "OPTIONS") {
-    return new Response(null, {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      },
-    });
+    return onRequestOptions(context);
+  }
+  if (context.request.method === "GET") {
+    return onRequestGet(context);
   }
   return onRequestPost(context);
 }
