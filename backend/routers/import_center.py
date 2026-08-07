@@ -584,12 +584,22 @@ async def _run_bulk_job_worker(job_id: str, tasks: List[Dict[str, Any]], dry_run
                     source_url=t.get("source_url")
                 )
 
+                # ── Audit Trace Instrumentation ──
+                import logging
+                audit_logger = logging.getLogger("bulk_import_audit")
+                audit_logger.info(f"[Bulk Import Audit Trace] Task object: {t}")
+                audit_logger.info(f"[Bulk Import Audit Trace] Task keys: {list(t.keys())}")
+                audit_logger.info(f"[Bulk Import Audit Trace] pdf_english_url: {t.get('pdf_english_url')}, pdf_telugu_url: {t.get('pdf_telugu_url')}")
+
                 # ── Step 1: Save to DB — this is the critical step ──
                 await repo.insert(sermon.model_dump())
                 job["imported_count"] += 1
 
                 # ── Step 2: Trigger transcript extraction (non-critical, must not fail the import) ──
-                if t.get("pdf_english_url") or t.get("pdf_telugu_url"):
+                has_pdf_keys = bool(t.get("pdf_english_url") or t.get("pdf_telugu_url"))
+                audit_logger.info(f"[Bulk Import Audit Trace] Calling transcript processor: {has_pdf_keys}")
+
+                if has_pdf_keys:
                     try:
                         proc_res = await asyncio.wait_for(
                             process_sermon_transcripts(sermon.id),

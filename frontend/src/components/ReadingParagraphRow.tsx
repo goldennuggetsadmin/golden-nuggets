@@ -5,6 +5,8 @@ import { TranscriptParagraphText } from "./TranscriptParagraphText";
 import { radii, spacing, typography } from "../theme/tokens";
 import { useTheme } from "../theme/ThemeProvider";
 
+import { ENABLE_TRANSCRIPT_SYNC } from "../config/featureFlags";
+
 export interface ReadingParagraphRowProps {
   item: Paragraph;
   fontSize: number;
@@ -21,7 +23,7 @@ export const ReadingParagraphRow = React.memo(function ReadingParagraphRow({
   item,
   fontSize,
   isActive,
-  isHighlighted,
+  isHighlighted = false,
   isAutoFollowing,
   isPlaying,
   isTargetGlow,
@@ -34,8 +36,8 @@ export const ReadingParagraphRow = React.memo(function ReadingParagraphRow({
   // Animated opacity transition (150-250ms Ease-In-Out)
   const opacityAnim = useRef(new Animated.Value(1)).current;
 
-  // Active paragraph: opacity 1.0. Other paragraphs during playback: dimmed 0.38. When paused/stopped: opacity 1.0.
-  const targetOpacity = isPlaying && isAutoFollowing ? (isActive ? 1 : 0.38) : 1;
+  // Active paragraph: opacity 1.0. Other paragraphs during playback: dimmed 0.38 when sync enabled. Static 1.0 when sync disabled.
+  const targetOpacity = ENABLE_TRANSCRIPT_SYNC && isPlaying && isAutoFollowing ? (isActive ? 1 : 0.38) : 1;
 
   useEffect(() => {
     Animated.timing(opacityAnim, {
@@ -46,8 +48,38 @@ export const ReadingParagraphRow = React.memo(function ReadingParagraphRow({
     }).start();
   }, [targetOpacity, opacityAnim]);
 
-  // Glow animation background interpolation
-  const backgroundColor = isTargetGlow
+  // Animated highlight transition (250ms Ease-In-Out fade in/out)
+  const highlightAnim = useRef(new Animated.Value(isHighlighted ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(highlightAnim, {
+      toValue: isHighlighted ? 1 : 0,
+      duration: 250,
+      easing: Easing.inOut(Easing.ease),
+      useNativeDriver: false,
+    }).start();
+  }, [isHighlighted, highlightAnim]);
+
+  // Interpolated animated background color for user highlight
+  const animatedBgColor = highlightAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [
+      "transparent",
+      theme === "dark" ? "rgba(16, 185, 129, 0.16)" : "rgba(45, 138, 94, 0.12)",
+    ],
+  });
+
+  // Interpolated animated border color for user highlight
+  const animatedBorderColor = highlightAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [
+      "transparent",
+      theme === "dark" ? "rgba(16, 185, 129, 0.4)" : "rgba(45, 138, 94, 0.4)",
+    ],
+  });
+
+  // Glow animation background interpolation (only when sync enabled)
+  const syncGlowColor = ENABLE_TRANSCRIPT_SYNC && isTargetGlow
     ? glowAnim.interpolate({
         inputRange: [0, 1],
         outputRange: [
@@ -69,17 +101,27 @@ export const ReadingParagraphRow = React.memo(function ReadingParagraphRow({
   }
 
   return (
-    <Pressable onPress={() => onPress(item)} style={{ marginVertical: spacing[3] }}>
+    <Pressable onPress={() => onPress(item)} style={{ marginVertical: spacing[2] }}>
       <Animated.View style={{ opacity: opacityAnim }}>
         <Animated.View
           style={[
             styles.rowContainer,
-            { backgroundColor },
-            isHighlighted && styles.highlightedRow,
+            {
+              backgroundColor: ENABLE_TRANSCRIPT_SYNC && isTargetGlow ? syncGlowColor : animatedBgColor,
+              borderColor: animatedBorderColor,
+              borderWidth: 1,
+            },
           ]}
         >
-          {/* Highlight bar — always reserves space so text never shifts horizontally */}
-          <View style={isHighlighted ? styles.highlightBar : styles.highlightBarPlaceholder} />
+          {/* Highlight bar — stretches full height and fades in/out with animation */}
+          <Animated.View
+            style={[
+              styles.highlightBar,
+              {
+                opacity: highlightAnim,
+              },
+            ]}
+          />
 
           {/* Verse / Paragraph Number Gutter — 20-30% larger font size (16px) */}
           <View style={styles.numCol}>
@@ -87,8 +129,6 @@ export const ReadingParagraphRow = React.memo(function ReadingParagraphRow({
               <Text style={styles.paraNum}>{item.paragraph_number}</Text>
             ) : null}
           </View>
-
-          {/* ISSUE 6: Inline speaker/play icon removed completely */}
 
           {/* Paragraph Text */}
           <View style={styles.textCol}>
@@ -112,32 +152,24 @@ const getStyles = (colors: any, theme: string) =>
     rowContainer: {
       flexDirection: "row",
       alignItems: "flex-start",
-      paddingVertical: spacing[2],
-      paddingHorizontal: 0,
-      borderRadius: radii.md,
+      paddingVertical: spacing[3],
+      paddingHorizontal: spacing[2],
+      borderRadius: radii.lg,
     },
     hymnLayout: {
       lineHeight: 28,
     },
-    highlightedRow: {
-      backgroundColor: theme === "dark" ? "rgba(16, 185, 129, 0.05)" : "rgba(45, 138, 94, 0.05)",
-    },
     highlightBar: {
-      width: 3,
-      height: "100%",
-      minHeight: 24,
+      width: 4,
+      alignSelf: "stretch",
       borderRadius: 2,
       backgroundColor: colors.emerald,
       marginRight: spacing[2],
     },
-    highlightBarPlaceholder: {
-      width: 3,
-      marginRight: spacing[2],
-    },
     numCol: {
-      width: 40,
+      width: 36,
       alignItems: "flex-start",
-      paddingRight: 6,
+      paddingRight: 4,
     },
     // ISSUE 5: Paragraph numbers 20-30% larger (16px instead of 13px)
     paraNum: {

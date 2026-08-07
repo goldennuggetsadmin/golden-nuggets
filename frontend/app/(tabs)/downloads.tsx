@@ -4,15 +4,17 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 
 import { api, Testimony } from "@/src/api/client";
 import { radii, spacing, typography } from "@/src/theme/tokens";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { formatMins, usePlayer } from "@/src/player/PlayerContext";
-import { useDownloads } from "@/src/downloads/DownloadsContext";
+import { useDownloads, resolveLocalAudioUri, DownloadItem } from "@/src/downloads/DownloadsContext";
 import { useToast } from "@/src/toast/ToastContext";
 import { EmptyState } from "@/src/components/EmptyState";
+import { formatSermonCode, getExportFilename, cleanSermonTitle } from "@/src/utils/sermonUtils";
 
 const TAB_BAR_INSET = 140;
 
@@ -37,10 +39,18 @@ export default function DownloadsScreen() {
   const styles = getStyles(colors, theme);
 
   useEffect(() => {
-    api.listTestimonies({ limit: 200 }).then(setItems).catch(() => {});
+    api.listTestimonies().then(setItems).catch(() => {});
   }, []);
 
-  const testimonyFor = (id: string) => items.find((x) => x.id === id);
+  const testimonyFor = (id: string) =>
+    items.find(
+      (x) =>
+        x.id === id ||
+        x.verse === id ||
+        x.date_code === id ||
+        x.code === id ||
+        (id && (x.id.includes(id) || (x.verse && x.verse.includes(id))))
+    );
 
   const openAudioTestimony = async (id: string) => {
     const m = testimonyFor(id);
@@ -49,17 +59,26 @@ export default function DownloadsScreen() {
     router.push("/player");
   };
 
-  const sharePdfFile = async (localUri: string, title: string, lang: string, sermonId: string) => {
+  const sharePdfFile = async (localUri: string, sermonId: string) => {
     try {
       const available = await Sharing.isAvailableAsync();
       if (!available) {
         toast.show("Sharing unavailable", "error");
         return;
       }
+
+      const exportFilename = getExportFilename(sermonId);
+      const baseDir = FileSystem.cacheDirectory || FileSystem.documentDirectory || "";
+      const targetUri = `${baseDir}${exportFilename}`;
+
+      // Copy to cache directory with standardized export filename (65_1127E.pdf)
+      await FileSystem.copyAsync({ from: localUri, to: targetUri }).catch(() => {});
+      const fileToShare = (await FileSystem.getInfoAsync(targetUri)).exists ? targetUri : localUri;
+
       api.track("pdf_share", sermonId).catch(() => {});
-      await Sharing.shareAsync(localUri, {
+      await Sharing.shareAsync(fileToShare, {
         mimeType: "application/pdf",
-        dialogTitle: `${title} - Official ${lang.toUpperCase()} Transcript PDF`,
+        dialogTitle: exportFilename,
         UTI: "com.adobe.pdf",
       });
     } catch (e) {
@@ -67,9 +86,56 @@ export default function DownloadsScreen() {
     }
   };
 
-  const downloadedAudioRaw = Object.values(dl.items).filter((r) => r.state === "downloaded" || r.state === "completed");
-  const downloadedAudio = downloadedAudioRaw.filter((r) => testimonyFor(r.testimony_id) !== undefined);
+  const shareAudioFile = async (item: DownloadItem) => {
+    try {
+      const available = await Sharing.isAvailableAsync();
+      if (!available) {
+        toast.show("Sharing unavailable", "error");
+        return;
+      }
 
+      const resolved = await resolveLocalAudioUri(item);
+      console.log("local_uri", item.local_uri);
+      console.log("exists", resolved.exists);
+      console.log("filename", item.filename || `${item.testimony_id}.mp3`);
+      console.log("directory", FileSystem.documentDirectory + "audio/");
+
+      if (!resolved.exists) {
+        console.log("Missing audio file at path:", item.local_uri, "Fallback path:", resolved.uri);
+        toast.show("Audio file missing on disk", "error");
+        return;
+      }
+
+      const codeFormatted = formatSermonCode(item.sermon_code || item.display_name || item.testimony_id);
+      const exportFilename = `${codeFormatted}.mp3`;
+      const baseDir = FileSystem.cacheDirectory || FileSystem.documentDirectory || "";
+      const targetUri = `${baseDir}${exportFilename}`;
+
+      let fileToShare = resolved.uri;
+      try {
+        await FileSystem.copyAsync({ from: resolved.uri, to: targetUri });
+        const targetInfo = await FileSystem.getInfoAsync(targetUri);
+        if (targetInfo.exists) {
+          fileToShare = targetUri;
+        }
+      } catch (err) {
+        console.log("Copy to cache failed, falling back to resolved.uri:", err);
+        fileToShare = resolved.uri;
+      }
+
+      console.log("share target", fileToShare);
+
+      await Sharing.shareAsync(fileToShare, {
+        mimeType: "audio/mpeg",
+        dialogTitle: exportFilename,
+      });
+    } catch (e) {
+      console.log("Share audio error:", e);
+      toast.show("Failed to share Audio", "error");
+    }
+  };
+
+  const downloadedAudio = Object.values(dl.items).filter((r) => r.state === "downloaded" || r.state === "completed");
   const downloadedPdfRaw = Object.values(dl.transcriptItems).filter((r) => r.state === "downloaded" || r.state === "completed");
 
   return (
@@ -125,34 +191,70 @@ export default function DownloadsScreen() {
           >
             {downloadedAudio.map((r) => {
               const m = testimonyFor(r.testimony_id);
-              if (!m) return null;
+              const codeRaw = r.sermon_code || m?.id || "";
+              const cleanCode = codeRaw ? codeRaw.replace(/_/g, "-") : "";
+              const titleClean = cleanSermonTitle(m?.title || r.sermon_title, cleanCode);
+
+              let title = cleanCode;
+              if (cleanCode && titleClean) {
+                title = `${cleanCode} ${titleClean}`;
+              } else if (titleClean) {
+                title = titleClean;
+              }
+
+              const speakerName = r.speaker || m?.speaker || "William Marion Branham";
+              const rawYear = r.year || m?.year;
+              const displayYear = rawYear ? (rawYear.toString().length === 2 ? `19${rawYear}` : rawYear) : undefined;
+              const subTitle = displayYear ? `${speakerName} • ${displayYear}` : speakerName;
+              const metaText = "MP3 • Offline";
+
               return (
                 <Pressable
                   key={r.testimony_id}
-                  testID={`download-open-${m.id}`}
-                  onPress={() => openAudioTestimony(m.id)}
-                  style={styles.doneRow}
+                  testID={`download-open-${r.testimony_id}`}
+                  onPress={() => openAudioTestimony(r.testimony_id)}
+                  style={styles.horizCard}
                 >
-                  {m.art_url ? (
-                    <Image source={{ uri: m.art_url }} style={styles.doneArt} contentFit="cover" cachePolicy="memory-disk" />
-                  ) : null}
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.doneTitle} numberOfLines={1}>{m.title}</Text>
-                    <Text style={styles.doneMeta} numberOfLines={1}>
-                      {m.speaker} · {formatMins(m.duration)} · {bytesFmt(r.bytes_written)}
-                    </Text>
+                  <View style={styles.horizArt}>
+                    {m?.art_url ? (
+                      <Image source={{ uri: m.art_url }} style={StyleSheet.absoluteFillObject} contentFit="cover" cachePolicy="memory-disk" />
+                    ) : (
+                      <Image source={require('@/assets/images/banner.png')} style={StyleSheet.absoluteFillObject} contentFit="cover" cachePolicy="memory-disk" />
+                    )}
                   </View>
-                  <Pressable
-                    testID={`download-delete-${m.id}`}
-                    style={styles.deleteBtn}
-                    onPress={async (e) => {
-                      e.stopPropagation();
-                      await dl.remove(m.id);
-                      toast.show("Deleted audio download", "info");
-                    }}
-                  >
-                    <Ionicons name="trash" size={16} color={colors.mutedForeground} />
-                  </Pressable>
+                  <View style={{ flex: 1, minWidth: 0, justifyContent: "center" }}>
+                    <Text style={styles.cardTitle} numberOfLines={1}>{title}</Text>
+                    <Text style={styles.cardSubtitle} numberOfLines={1}>{subTitle}</Text>
+                    <Text style={styles.cardMeta} numberOfLines={1}>{metaText}</Text>
+                  </View>
+                  <View style={{ flexDirection: "row", gap: spacing[2], alignItems: "center" }}>
+                    {r.local_uri && (
+                      <Pressable
+                        style={styles.actionIconBtn}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          shareAudioFile(r);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Open and Share Audio"
+                      >
+                        <Ionicons name="share-outline" size={16} color={colors.foreground} />
+                      </Pressable>
+                    )}
+                    <Pressable
+                      testID={`download-delete-${r.testimony_id}`}
+                      style={styles.deleteBtn}
+                      onPress={async (e) => {
+                        e.stopPropagation();
+                        await dl.remove(r.testimony_id);
+                        toast.show("Deleted audio download", "info");
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Delete Audio Download"
+                    >
+                      <Ionicons name="trash" size={16} color="#ff3b30" />
+                    </Pressable>
+                  </View>
                 </Pressable>
               );
             })}
@@ -175,27 +277,56 @@ export default function DownloadsScreen() {
           showsVerticalScrollIndicator={false}
         >
           {downloadedPdfRaw.map((r) => {
+            console.log("Transcript Render Object", JSON.stringify(r, null, 2));
             const m = testimonyFor(r.testimony_id);
-            const title = m?.title || r.filename;
-            const speaker = m?.speaker || "William Marrion Branham";
-            const langLabel = r.language.toUpperCase() === "TE" ? "Telugu" : "English";
+
+            const codeRaw = r.sermon_code || m?.verse || m?.id || r.testimony_id || "";
+            const sermonCode = codeRaw ? codeRaw.replace(/_/g, "-") : "";
+            const rawTitle = m?.title || r.sermon_title || "";
+            const titleClean = cleanSermonTitle(rawTitle, sermonCode);
+
+            let title = sermonCode;
+            if (sermonCode && titleClean) {
+              title = `${sermonCode} ${titleClean}`;
+            } else if (titleClean) {
+              title = titleClean;
+            } else if (rawTitle && !rawTitle.includes(sermonCode)) {
+              title = `${sermonCode} ${rawTitle}`;
+            }
+
+            const speakerName = r.speaker || m?.speaker || "William Marion Branham";
+            const rawYear = r.year || m?.year || "1965";
+            const displayYear = rawYear ? (rawYear.toString().length === 2 ? `19${rawYear}` : rawYear) : "1965";
+            const subTitle = `${speakerName} • ${displayYear}`;
+
+            const isTe = r.language.toLowerCase() === "te" || r.language.toLowerCase() === "telugu";
+            const pdfLangLabel = isTe ? "Telugu PDF" : "English PDF";
+            const metaText = `${pdfLangLabel} • Offline`;
+
+            console.log("Card Title Render Check - Transcript:", { title, sermon_title: r.sermon_title, m_title: m?.title });
 
             return (
-              <View key={`${r.testimony_id}_${r.language}`} style={styles.doneRow}>
-                <View style={[styles.doneArt, { backgroundColor: colors.goldSoft || "rgba(212,160,23,0.15)", alignItems: "center", justifyContent: "center" }]}>
-                  <Ionicons name="document-text" size={26} color={colors.gold || "#d4a017"} />
+              <View key={`${r.testimony_id}_${r.language}`} style={styles.horizCard}>
+                <View style={styles.horizArt}>
+                  {m?.art_url ? (
+                    <Image source={{ uri: m.art_url }} style={StyleSheet.absoluteFillObject} contentFit="cover" cachePolicy="memory-disk" />
+                  ) : (
+                    <Image source={require('@/assets/images/banner.png')} style={StyleSheet.absoluteFillObject} contentFit="cover" cachePolicy="memory-disk" />
+                  )}
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.doneTitle} numberOfLines={1}>{title}</Text>
-                  <Text style={styles.doneMeta} numberOfLines={1}>
-                    {speaker} · {langLabel} PDF · {bytesFmt(r.bytes_written)}
-                  </Text>
+                <View style={{ flex: 1, minWidth: 0, justifyContent: "center" }}>
+                  <Text style={styles.cardTitle} numberOfLines={1}>{title}</Text>
+                  <Text style={styles.cardSubtitle} numberOfLines={1}>{subTitle}</Text>
+                  <Text style={styles.cardMeta} numberOfLines={1}>{metaText}</Text>
                 </View>
-                <View style={{ flexDirection: "row", gap: spacing[2] }}>
+                <View style={{ flexDirection: "row", gap: spacing[2], alignItems: "center" }}>
                   {r.local_uri && (
                     <Pressable
                       style={styles.actionIconBtn}
-                      onPress={() => sharePdfFile(r.local_uri!, title, langLabel, r.testimony_id)}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        sharePdfFile(r.local_uri!, r.display_name || r.sermon_code || r.testimony_id);
+                      }}
                       accessibilityRole="button"
                       accessibilityLabel="Open and Share PDF"
                     >
@@ -203,7 +334,7 @@ export default function DownloadsScreen() {
                     </Pressable>
                   )}
                   <Pressable
-                    style={[styles.actionIconBtn, { backgroundColor: "rgba(255,59,48,0.1)" }]}
+                    style={styles.deleteBtn}
                     onPress={async () => {
                       await dl.removeTranscriptDownload(r.testimony_id, r.language);
                     }}
@@ -230,10 +361,27 @@ const getStyles = (colors: any, theme: string) => StyleSheet.create({
   segmentedBtnActive: { backgroundColor: colors.emerald },
   segmentedText: { fontSize: 13, fontFamily: typography.sansSemi, color: colors.mutedForeground },
   segmentedTextActive: { color: theme === "dark" ? colors.background : "#fff" },
-  doneRow: { flexDirection: "row", alignItems: "center", gap: spacing[3], borderRadius: radii.xl, borderWidth: 1, borderColor: colors.hairline, backgroundColor: colors.surface, padding: spacing[3] },
-  doneArt: { width: 56, height: 56, borderRadius: radii.md },
-  doneTitle: { fontSize: 14, color: colors.foreground, fontFamily: typography.sansSemi },
-  doneMeta: { marginTop: 2, fontSize: 12, color: colors.mutedForeground, fontFamily: typography.sans },
-  deleteBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  actionIconBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.hairline, alignItems: "center", justifyContent: "center" },
+  horizCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: spacing[3],
+    paddingHorizontal: spacing[4],
+    backgroundColor: theme === "dark" ? "rgba(20, 26, 24, 0.6)" : "rgba(233, 236, 239, 0.6)",
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.hairline,
+    gap: spacing[3],
+  },
+  horizArt: {
+    width: 56,
+    height: 56,
+    borderRadius: radii.md,
+    overflow: "hidden",
+    backgroundColor: colors.surface,
+  },
+  cardTitle: { fontSize: 15, fontFamily: typography.sansSemi, color: colors.foreground, marginBottom: 2 },
+  cardSubtitle: { fontSize: 13, fontFamily: typography.sans, color: colors.mutedForeground, marginBottom: 2 },
+  cardMeta: { fontSize: 12, fontFamily: typography.sans, color: colors.emerald },
+  deleteBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,59,48,0.1)", alignItems: "center", justifyContent: "center" },
+  actionIconBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.hairline, alignItems: "center", justifyContent: "center" },
 });

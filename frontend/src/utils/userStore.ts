@@ -29,6 +29,9 @@ export interface UserNote {
 export interface UserHighlight {
   id: string;
   testimony_id: string;
+  testimony_title?: string;
+  speaker?: string;
+  date_code?: string;
   quote: string;
   language: string;
   paragraph_number: number;
@@ -218,7 +221,10 @@ export const userStore = {
     quote: string,
     language = "English",
     paragraph_number: number,
-    start_seconds?: number
+    start_seconds?: number,
+    testimony_title?: string,
+    speaker?: string,
+    date_code?: string
   ): Promise<UserHighlight> {
     const all = await userStore.getHighlights();
     
@@ -232,6 +238,9 @@ export const userStore = {
       const existing = all[existingIndex];
       existing.quote = quote;
       if (start_seconds !== undefined) existing.start_seconds = start_seconds;
+      if (testimony_title) existing.testimony_title = testimony_title;
+      if (speaker) existing.speaker = speaker;
+      if (date_code) existing.date_code = date_code;
       await storage.setItem(KEYS.HIGHLIGHTS, JSON.stringify(all));
       return existing;
     }
@@ -239,6 +248,9 @@ export const userStore = {
     const hl: UserHighlight = {
       id: `hl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       testimony_id,
+      testimony_title,
+      speaker,
+      date_code,
       quote,
       language,
       paragraph_number,

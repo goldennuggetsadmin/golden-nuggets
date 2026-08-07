@@ -38,6 +38,8 @@ interface PlayerState {
   dismissMiniPlayer: () => void;
   restoreMiniPlayer: () => void;
   selectSermon: (m: Testimony) => Promise<void>;
+  isSheetOpen: boolean;
+  setSheetOpen: (open: boolean) => void;
 }
 
 const Ctx = createContext<PlayerState | null>(null);
@@ -53,6 +55,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [isDismissed, setIsDismissed] = useState(false);
   const [isEnded, setIsEnded] = useState(false);
   const [isPreparing, setIsPreparing] = useState(false);
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
+
+  const setSheetOpen = useCallback((open: boolean) => {
+    setIsSheetOpen(open);
+  }, []);
 
   const settings = useSettings();
   const downloads = useDownloads();
@@ -285,12 +292,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const value: PlayerState = useMemo(() => ({
     current, playing, position, duration, playbackRate: settings.playbackRate,
-    queue, sleepAt, isDismissed, isEnded, isPreparing,
+    queue, sleepAt, isDismissed, isEnded, isPreparing, isSheetOpen, setSheetOpen,
     play, toggle, seekTo, skip, setRate, clear,
     enqueue, removeFromQueue, playNextInQueue, setSleepTimer, favorite,
     dismissMiniPlayer, restoreMiniPlayer, selectSermon,
   }), [current, playing, position, duration, settings.playbackRate, queue, sleepAt,
-       isDismissed, isEnded, isPreparing, play, toggle, seekTo, skip, setRate, clear,
+       isDismissed, isEnded, isPreparing, isSheetOpen, setSheetOpen, play, toggle, seekTo, skip, setRate, clear,
        enqueue, removeFromQueue, playNextInQueue, setSleepTimer, favorite,
        dismissMiniPlayer, restoreMiniPlayer, selectSermon]);
 

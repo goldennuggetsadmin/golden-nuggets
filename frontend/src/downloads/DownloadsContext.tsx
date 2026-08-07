@@ -10,11 +10,20 @@ import * as FileSystem from "expo-file-system/legacy";
 import { storage } from "@/src/utils/storage";
 import { api, Testimony } from "@/src/api/client";
 import { useToast } from "@/src/toast/ToastContext";
+import { formatSermonCode, cleanSermonTitle } from "@/src/utils/sermonUtils";
 
 export type DownloadState = "not_downloaded" | "queued" | "downloading" | "paused" | "completed" | "downloaded" | "failed" | "error" | "retry";
 
 export interface DownloadItem {
   testimony_id: string;
+  sermon_code: string;
+  sermon_title: string;
+  display_name: string;
+  speaker: string;
+  year?: number | string;
+  language?: string;
+  filename?: string;
+  title?: string;
   state: DownloadState;
   bytes_written: number;
   bytes_total: number;
@@ -25,6 +34,11 @@ export interface DownloadItem {
 
 export interface TranscriptDownloadItem {
   testimony_id: string;
+  sermon_code: string;
+  sermon_title?: string;
+  display_name: string;
+  speaker?: string;
+  year?: number | string;
   language: string; // "en" | "te" | "English" | "Telugu"
   filename: string;
   state: DownloadState;
@@ -94,6 +108,45 @@ function normalizeLangKey(lang?: string): string {
   return "en";
 }
 
+export async function resolveLocalAudioUri(r: DownloadItem): Promise<{ uri: string; exists: boolean }> {
+  const primaryUri = r.local_uri;
+  const filename = r.filename || `${r.testimony_id}.mp3`;
+  const fallbackUri = `${DIR_AUDIO}${filename}`;
+
+  console.log("local_uri", primaryUri);
+  console.log("filename", filename);
+  console.log("directory", DIR_AUDIO);
+
+  if (primaryUri) {
+    const info = await FileSystem.getInfoAsync(primaryUri);
+    console.log("primary path exists", info.exists);
+    if (info.exists) {
+      return { uri: primaryUri, exists: true };
+    }
+  }
+
+  const fallbackInfo = await FileSystem.getInfoAsync(fallbackUri);
+  console.log("fallback path exists", fallbackInfo.exists);
+  if (fallbackInfo.exists) {
+    return { uri: fallbackUri, exists: true };
+  }
+
+  try {
+    const files = await FileSystem.readDirectoryAsync(DIR_AUDIO);
+    console.log("DIR_AUDIO contents:", files);
+    const match = files.find((f) => f.includes(r.testimony_id) || (r.sermon_code && f.includes(r.sermon_code)));
+    if (match) {
+      const matchedUri = `${DIR_AUDIO}${match}`;
+      console.log("found matched file in directory:", matchedUri);
+      return { uri: matchedUri, exists: true };
+    }
+  } catch (err) {
+    console.log("Error scanning DIR_AUDIO:", err);
+  }
+
+  return { uri: primaryUri || fallbackUri, exists: false };
+}
+
 export function DownloadsProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<Record<string, DownloadItem>>({});
   const [transcriptItems, setTranscriptItems] = useState<Record<string, TranscriptDownloadItem>>({});
@@ -101,17 +154,104 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
   const [resumablesAudio] = useState<Record<string, FileSystem.DownloadResumable>>({});
   const [resumablesPdf] = useState<Record<string, FileSystem.DownloadResumable>>({});
 
-  // Hydrate registries on mount
+  // Hydrate registries on mount and perform automatic catalog migration
   useEffect(() => {
     (async () => {
       await ensureDirs();
+
+      let catalog: Testimony[] = [];
+      try {
+        catalog = await api.listTestimonies();
+      } catch {}
+
+      const findInCatalog = (id: string) =>
+        catalog.find(
+          (x) =>
+            x.id === id ||
+            x.verse === id ||
+            x.date_code === id ||
+            x.code === id ||
+            (id && (x.id.includes(id) || (x.verse && x.verse.includes(id))))
+        );
+
       const rawAudio = await storage.getItem(REG_KEY_AUDIO, "");
       if (rawAudio) {
-        try { setItems(JSON.parse(String(rawAudio)) as Record<string, DownloadItem>); } catch {}
+        try {
+          const parsed = JSON.parse(String(rawAudio)) as Record<string, DownloadItem>;
+          let updated = false;
+          Object.keys(parsed).forEach((key) => {
+            const item = parsed[key];
+            const cat = findInCatalog(item.testimony_id || key);
+            
+            console.log("Before migration:", JSON.stringify(item, null, 2));
+
+            if (!item.sermon_code || item.sermon_code === item.testimony_id) {
+              item.sermon_code = cat?.verse || cat?.date_code || item.sermon_code || key;
+              updated = true;
+            }
+            const rawTitle = cat?.title || item.sermon_title || item.title || "";
+            const cleanedTitle = cleanSermonTitle(rawTitle, item.sermon_code);
+            if (cleanedTitle !== item.sermon_title) {
+              item.sermon_title = cleanedTitle || rawTitle;
+              updated = true;
+            }
+            if (!item.speaker || item.speaker === "William Marrion Branham") {
+              item.speaker = cat?.speaker || "William Marion Branham";
+              updated = true;
+            }
+            if (!item.year && cat?.year) {
+              item.year = cat.year.toString().length === 2 ? `19${cat.year}` : cat.year.toString();
+              updated = true;
+            }
+            item.display_name = formatSermonCode(item.sermon_code, item.sermon_title);
+
+            console.log("After migration:", JSON.stringify(item, null, 2));
+          });
+          setItems(parsed);
+          if (updated) {
+            await storage.setItem(REG_KEY_AUDIO, JSON.stringify(parsed));
+          }
+        } catch {}
       }
+
       const rawPdf = await storage.getItem(REG_KEY_PDF, "");
       if (rawPdf) {
-        try { setTranscriptItems(JSON.parse(String(rawPdf)) as Record<string, TranscriptDownloadItem>); } catch {}
+        try {
+          const parsed = JSON.parse(String(rawPdf)) as Record<string, TranscriptDownloadItem>;
+          let updated = false;
+          Object.keys(parsed).forEach((key) => {
+            const item = parsed[key];
+            const cat = findInCatalog(item.testimony_id || key.split("_")[0]);
+
+            console.log("Before migration:", JSON.stringify(item, null, 2));
+
+            if (!item.sermon_code || item.sermon_code === item.testimony_id) {
+              item.sermon_code = cat?.verse || cat?.date_code || item.sermon_code || key.split("_")[0];
+              updated = true;
+            }
+            const rawTitle = cat?.title || item.sermon_title || "";
+            const cleanedTitle = cleanSermonTitle(rawTitle, item.sermon_code);
+            if (cleanedTitle !== item.sermon_title || !item.sermon_title) {
+              item.sermon_title = cleanedTitle || rawTitle;
+              updated = true;
+            }
+            if (!item.speaker || item.speaker === "William Marrion Branham") {
+              item.speaker = cat?.speaker || "William Marion Branham";
+              updated = true;
+            }
+            if (!item.year && cat?.year) {
+              item.year = cat.year.toString().length === 2 ? `19${cat.year}` : cat.year.toString();
+              updated = true;
+            }
+            item.display_name = formatSermonCode(item.sermon_code, item.sermon_title || item.filename);
+
+            console.log("After migration:", JSON.stringify(item, null, 2));
+          });
+          setTranscriptItems(parsed);
+          if (updated) {
+            await storage.setItem(REG_KEY_PDF, JSON.stringify(parsed));
+          }
+        } catch {}
       }
     })();
   }, []);
@@ -146,27 +286,62 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
   const start = useCallback(async (t: Testimony) => {
     if (!t.audio_url) { toast.show("No audio available", "error"); return; }
     await ensureDirs();
+
+    const dateCodeProp = t.date_code || t.code || t.verse || "";
+    const searchStr = `${dateCodeProp} ${t.id} ${t.title || ""}`;
+    const codeMatch = searchStr.match(/\b(\d{2}[-_]\d{4}[A-Za-z]?)\b/);
+
+    let sermonCode = "";
+    if (codeMatch && codeMatch[1]) {
+      sermonCode = codeMatch[1].replace(/_/g, "-");
+    } else if (!/^[0-9a-f]{8}[-_]/i.test(t.id)) {
+      sermonCode = t.id;
+    } else if (t.year) {
+      const yrShort = t.year.toString().slice(-2);
+      sermonCode = `${yrShort}-0000`;
+    } else {
+      sermonCode = "Sermon";
+    }
+
+    const displayName = formatSermonCode(sermonCode, t.title);
+    let sermonTitle = t.title || "";
+    if (!sermonTitle || /^[0-9a-f]{8}[-_]/i.test(sermonTitle)) {
+      sermonTitle = displayName;
+    }
+    const speakerName = t.speaker || "William Marion Branham";
+    const yearStr = t.year ? (t.year.toString().length === 2 ? `19${t.year}` : t.year.toString()) : "";
+
     const local = `${DIR_AUDIO}${t.id}.${extFromUrl(t.audio_url, "mp3")}`;
     
     // Duplicate prevention check
     const existingSize = await getFileSize(local);
-    if (existingSize > 0 && items[t.id]?.state === "downloaded") {
+    if (existingSize > 0 && items[t.id]?.state === "completed") {
       toast.show("Audio already downloaded", "info");
       return;
     }
 
-    const next = {
-      ...items,
-      [t.id]: {
-        testimony_id: t.id,
-        state: "downloading" as DownloadState,
-        bytes_written: 0,
-        bytes_total: t.audio_bytes || 0,
-        updated_at: Date.now(),
-        local_uri: local,
-      },
+    const initialItem: DownloadItem = {
+      testimony_id: t.id,
+      sermon_code: sermonCode,
+      sermon_title: sermonTitle,
+      display_name: displayName,
+      speaker: speakerName,
+      year: yearStr,
+      language: t.language || "en",
+      filename: `${t.id}.${extFromUrl(t.audio_url, "mp3")}`,
+      title: sermonTitle,
+      state: "downloading",
+      bytes_written: 0,
+      bytes_total: t.audio_bytes || 0,
+      local_uri: local,
+      updated_at: Date.now(),
     };
-    await persistAudio(next);
+
+    setItems((cur) => {
+      const nxt = { ...cur, [t.id]: initialItem };
+      storage.setItem(REG_KEY_AUDIO, JSON.stringify(nxt));
+      return nxt;
+    });
 
     const dl = FileSystem.createDownloadResumable(
       t.audio_url, local, {},
@@ -190,30 +365,48 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
       const res = await dl.downloadAsync();
       if (!res) throw new Error("download aborted");
       const finalSize = await getFileSize(res.uri);
-      const nxt = {
-        ...items,
-        [t.id]: {
-          testimony_id: t.id,
-          state: "completed" as DownloadState,
-          bytes_written: finalSize,
-          bytes_total: finalSize,
-          local_uri: res.uri,
-          updated_at: Date.now(),
-        },
+
+      const completedItem: DownloadItem = {
+        testimony_id: t.id,
+        sermon_code: sermonCode,
+        sermon_title: sermonTitle,
+        display_name: displayName,
+        speaker: speakerName,
+        year: yearStr,
+        language: t.language || "en",
+        filename: `${t.id}.${extFromUrl(t.audio_url, "mp3")}`,
+        title: sermonTitle,
+        state: "completed",
+        bytes_written: finalSize,
+        bytes_total: finalSize,
+        local_uri: res.uri,
+        updated_at: Date.now(),
       };
-      await persistAudio(nxt);
+
+      setItems((cur) => {
+        const nxt = { ...cur, [t.id]: completedItem };
+        storage.setItem(REG_KEY_AUDIO, JSON.stringify(nxt));
+        return nxt;
+      });
+
+      // Debug Requirement: Print AudioDownloadItem immediately after creating
+      console.log("AudioDownloadItem", completedItem);
+
       api.patchTestimony(t.id, { downloaded: true }).catch(() => {});
       api.track("download_finish", t.id).catch(() => {});
       toast.show("Audio download complete", "success");
     } catch (e) {
-      const nxt = { ...items };
-      if (nxt[t.id]) nxt[t.id] = { ...nxt[t.id], state: "failed", error: String(e), updated_at: Date.now() };
-      await persistAudio(nxt);
+      setItems((cur) => {
+        const nxt = { ...cur };
+        if (nxt[t.id]) nxt[t.id] = { ...nxt[t.id], state: "failed", error: String(e), updated_at: Date.now() };
+        storage.setItem(REG_KEY_AUDIO, JSON.stringify(nxt));
+        return nxt;
+      });
       toast.show("Audio download failed", "error");
     } finally {
       delete resumablesAudio[t.id];
     }
-  }, [items, persistAudio, resumablesAudio, toast]);
+  }, [items, resumablesAudio, toast]);
 
   const pause = useCallback(async (id: string) => {
     const r = resumablesAudio[id];
@@ -288,8 +481,34 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
     const expectedSize = isTelugu ? t.telugu_pdf_size : t.english_pdf_size;
     const startTime = Date.now();
 
+    const dateCodeProp = t.date_code || t.code || t.verse || "";
+    const searchStr = `${dateCodeProp} ${t.id} ${t.title || ""}`;
+    const codeMatch = searchStr.match(/\b(\d{2}[-_]\d{4}[A-Za-z]?)\b/);
+
+    let sermonCode = "";
+    if (codeMatch && codeMatch[1]) {
+      sermonCode = codeMatch[1].replace(/_/g, "-");
+    } else if (!/^[0-9a-f]{8}[-_]/i.test(t.id)) {
+      sermonCode = t.id;
+    } else if (t.year) {
+      const yrShort = t.year.toString().slice(-2);
+      sermonCode = `${yrShort}-0000`;
+    } else {
+      sermonCode = "Sermon";
+    }
+
+    const displayName = formatSermonCode(sermonCode, t.title);
+    const sermonTitle = t.title || "";
+    const speakerName = t.speaker || "William Marion Branham";
+    const yearStr = t.year ? (t.year.toString().length === 2 ? `19${t.year}` : t.year.toString()) : "";
+
     const initialItem: TranscriptDownloadItem = {
       testimony_id: t.id,
+      sermon_code: sermonCode,
+      sermon_title: sermonTitle,
+      display_name: displayName,
+      speaker: speakerName,
+      year: yearStr,
       language: langKey,
       filename,
       state: "downloading",
@@ -339,6 +558,11 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
 
       const completedItem: TranscriptDownloadItem = {
         testimony_id: t.id,
+        sermon_code: sermonCode,
+        sermon_title: sermonTitle,
+        display_name: displayName,
+        speaker: speakerName,
+        year: yearStr,
         language: langKey,
         filename,
         state: "completed",
@@ -352,6 +576,9 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
 
       const nxt = { ...transcriptItems, [itemKey]: completedItem };
       await persistPdf(nxt);
+
+      // Debug Requirement: Print saved transcript object immediately after saving
+      console.log("TranscriptDownloadItem", completedItem);
 
       // Track analytics event: pdf_download_completed
       api.track("pdf_download_completed", t.id).catch(() => {});

@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { Ionicons } from "@expo/vector-icons";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
@@ -31,6 +31,7 @@ import { useReadingEngine } from "@/src/hooks/useReadingEngine";
 import { ReadingParagraphRow } from "@/src/components/ReadingParagraphRow";
 import { UserHighlight } from "@/src/utils/userStore";
 import { Skeleton } from "@/src/components/Skeleton";
+import { ENABLE_TRANSCRIPT_SYNC } from "@/src/config/featureFlags";
 
 export default function ReadingModeScreen() {
   const insets = useSafeAreaInsets();
@@ -123,6 +124,19 @@ export default function ReadingModeScreen() {
     loadSermonData();
   }, [loadSermonData]);
 
+  useFocusEffect(
+    useCallback(() => {
+      if (params.id) {
+        api.listHighlights(params.id as string).then(setHighlights).catch(() => {});
+      }
+    }, [params.id])
+  );
+
+  useEffect(() => {
+    const open = isActionSheetOpen || isCollectionPickerOpen;
+    p.setSheetOpen(open);
+  }, [isActionSheetOpen, isCollectionPickerOpen, p]);
+
   // Active transcript & document
   const activeTranscript = useMemo(() => {
     if (!sermon?.transcripts) return null;
@@ -209,9 +223,9 @@ export default function ReadingModeScreen() {
   }, [doc, flashListReadyTick, initialTargetNumber]);
 
   // ── Live audio-follow auto-scroll ──
-  // Guarded by hasReleasedDeepLinkLock: when Reading Mode is opened from a
-  // deep link, this effect does NOT fire until the user taps "Return to Live".
+  // Guarded by ENABLE_TRANSCRIPT_SYNC and hasReleasedDeepLinkLock.
   useEffect(() => {
+    if (!ENABLE_TRANSCRIPT_SYNC) return;
     if (!hasReleasedDeepLinkLock.current) return;
     if (autoFollow && activeParagraphNumber && doc?.paragraphs && flashListRef.current) {
       const activeIdx = doc.paragraphs.findIndex(
@@ -298,7 +312,10 @@ export default function ReadingModeScreen() {
         selectedParagraph.text,
         lang,
         selectedParagraph.paragraph_number ?? 0,
-        selectedParagraph.start_seconds
+        selectedParagraph.start_seconds,
+        sermon.title,
+        sermon.speaker || "William Marrion Branham",
+        sermon.year ? String(sermon.year) : undefined
       );
       setHighlights((prev) => [hl, ...prev]);
       toast.show("Saved to Highlights ⭐", "success");
@@ -539,41 +556,43 @@ export default function ReadingModeScreen() {
         )}
       </View>
 
-      {/* Floating Circular "Return to Live" Button */}
-      <Animated.View
-        pointerEvents={showReturnToLive ? "auto" : "none"}
-        style={[
-          styles.returnToLiveWrap,
-          {
-            bottom: returnToLiveBottom,
-            opacity: returnToLiveOpacity,
-            transform: [{ translateY: returnToLiveTranslateY }],
-          },
-        ]}
-      >
-        <Pressable
-          onPress={() => {
-            handleReturnToLive((activeNum) => {
-              if (doc?.paragraphs && flashListRef.current) {
-                const idx = doc.paragraphs.findIndex(
-                  (p) => p.paragraph_number === activeNum
-                );
-                if (idx >= 0) {
-                  flashListRef.current.scrollToIndex({
-                    index: idx,
-                    viewPosition: 0.42,
-                    animated: true,
-                  });
-                }
-              }
-            });
-          }}
-          style={styles.returnToLiveBtn}
+      {/* Floating Circular "Return to Live" Button (Version 2 feature behind feature flag) */}
+      {ENABLE_TRANSCRIPT_SYNC && (
+        <Animated.View
+          pointerEvents={showReturnToLive ? "auto" : "none"}
+          style={[
+            styles.returnToLiveWrap,
+            {
+              bottom: returnToLiveBottom,
+              opacity: returnToLiveOpacity,
+              transform: [{ translateY: returnToLiveTranslateY }],
+            },
+          ]}
         >
-          <Ionicons name="arrow-up" size={16} color={colors.background} />
-          <Text style={styles.returnToLiveText}>Return to Live</Text>
-        </Pressable>
-      </Animated.View>
+          <Pressable
+            onPress={() => {
+              handleReturnToLive((activeNum) => {
+                if (doc?.paragraphs && flashListRef.current) {
+                  const idx = doc.paragraphs.findIndex(
+                    (p) => p.paragraph_number === activeNum
+                  );
+                  if (idx >= 0) {
+                    flashListRef.current.scrollToIndex({
+                      index: idx,
+                      viewPosition: 0.42,
+                      animated: true,
+                    });
+                  }
+                }
+              });
+            }}
+            style={styles.returnToLiveBtn}
+          >
+            <Ionicons name="arrow-up" size={16} color={colors.background} />
+            <Text style={styles.returnToLiveText}>Return to Live</Text>
+          </Pressable>
+        </Animated.View>
+      )}
 
       {/* Curved Bottom Dock for Mini Player */}
       {isMiniPlayerActive && (
@@ -595,9 +614,9 @@ export default function ReadingModeScreen() {
 
       {/* ─── Paragraph Action Bottom Sheet ─── */}
       {isActionSheetOpen && selectedParagraph ? (
-        <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
+        <View style={[StyleSheet.absoluteFillObject, { zIndex: 1000 }]} pointerEvents="box-none">
           <Pressable style={styles.sheetOverlay} onPress={() => setIsActionSheetOpen(false)} />
-          <View style={[styles.sheetContent, { backgroundColor: colors.background, borderColor: colors.hairline }]}>
+          <View style={[styles.sheetContent, { backgroundColor: colors.background, borderColor: colors.hairline, paddingBottom: Math.max(insets.bottom + spacing[5], spacing[8]) }]}>
             <View style={styles.sheetHandle} />
 
             <Text style={styles.sheetHeader}>
@@ -605,13 +624,15 @@ export default function ReadingModeScreen() {
             </Text>
 
             <View style={{ gap: spacing[3], marginTop: spacing[4] }}>
-              {/* Play From Here */}
-              <Pressable style={[styles.sheetBtn, { backgroundColor: colors.emerald }]} onPress={handlePlayFromHere}>
-                <Ionicons name="play" size={18} color={theme === "dark" ? colors.background : "#fff"} />
-                <Text style={[styles.sheetBtnText, { color: theme === "dark" ? colors.background : "#fff" }]}>
-                  Play From Here
-                </Text>
-              </Pressable>
+              {/* Play From Here (V2 Feature) */}
+              {ENABLE_TRANSCRIPT_SYNC && (
+                <Pressable style={[styles.sheetBtn, { backgroundColor: colors.emerald }]} onPress={handlePlayFromHere}>
+                  <Ionicons name="play" size={18} color={theme === "dark" ? colors.background : "#fff"} />
+                  <Text style={[styles.sheetBtnText, { color: theme === "dark" ? colors.background : "#fff" }]}>
+                    Play From Here
+                  </Text>
+                </Pressable>
+              )}
 
               {/* Highlight toggle */}
               {(() => {
@@ -667,7 +688,7 @@ export default function ReadingModeScreen() {
 
       {/* ─── Select / Create Collection Sheet ─── */}
       {isCollectionPickerOpen ? (
-        <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
+        <View style={[StyleSheet.absoluteFillObject, { zIndex: 1000 }]} pointerEvents="box-none">
           <Pressable style={styles.sheetOverlay} onPress={() => setIsCollectionPickerOpen(false)} />
           <Animated.View
             style={[
@@ -676,6 +697,7 @@ export default function ReadingModeScreen() {
                 backgroundColor: colors.background,
                 borderColor: colors.hairline,
                 bottom: keyboardHeight,
+                paddingBottom: Math.max(insets.bottom + spacing[5], spacing[8]),
               },
             ]}
           >

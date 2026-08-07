@@ -82,12 +82,12 @@ class SermonService:
         doc = await self.repo.get_sermon(sermon_id)
         if not doc:
             raise NotFoundError("Sermon not found")
-        return doc
+        return clean(doc)
 
     async def create_sermon(self, data: Dict[str, Any], actor: Any, request: Any = None) -> Dict[str, Any]:
         sermon = await self.repo.create_sermon(data)
         await activity_log(actor=actor, action="sermon_created", entity_type="sermon", entity_id=data["id"], message=f"Created “{data.get('title')}”", request=request)
-        return sermon
+        return clean(sermon)
 
     async def update_sermon(self, sermon_id: str, data: Dict[str, Any], actor: Any, request: Any = None) -> Dict[str, Any]:
         existing = await self.repo.get_sermon(sermon_id)
@@ -98,12 +98,24 @@ class SermonService:
         await self.repo.update_sermon(sermon_id, updates)
         doc = await self.repo.get_sermon(sermon_id)
         await activity_log(actor=actor, action="sermon_updated", entity_type="sermon", entity_id=sermon_id, message=f"Updated “{doc.get('title')}”", request=request)
-        return doc
+        return clean(doc)
 
     async def delete_sermon(self, sermon_id: str, actor: Any, request: Any = None) -> bool:
         doc = await self.repo.get_sermon(sermon_id)
         if not doc:
             raise NotFoundError("Sermon not found")
+        try:
+            from providers.storage import get_storage_provider
+            provider = get_storage_provider()
+            for key in ["audio_storage_path", "artwork_storage_path", "pdf_english_storage_path", "pdf_telugu_storage_path"]:
+                path = doc.get(key)
+                if path:
+                    try:
+                        provider.delete(path)
+                    except Exception as e:
+                        logger.warning(f"Failed to delete storage file {path}: {e}")
+        except Exception:
+            pass
         await self.repo.delete_sermon(sermon_id)
         await activity_log(actor=actor, action="sermon_deleted", entity_type="sermon", entity_id=sermon_id, message=f"Deleted “{doc.get('title')}”", request=request)
         return True

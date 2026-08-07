@@ -101,6 +101,10 @@ export default function LibraryScreen() {
     }, [load])
   );
 
+  React.useEffect(() => {
+    p.setSheetOpen(Boolean(selectedHighlight));
+  }, [selectedHighlight, p]);
+
   const findTestimony = useCallback((id: string) => testimonies.find((x) => x.id === id), [testimonies]);
 
   const favoritesList = useMemo(
@@ -199,17 +203,27 @@ export default function LibraryScreen() {
             ) : (
               filteredHighlights.map((h) => {
                 const t = findTestimony(h.testimony_id);
+                const code = h.date_code || (t?.year ? String(t.year) : (h.testimony_id !== "unknown" ? h.testimony_id : ""));
+                const title = h.testimony_title || t?.title || (h.testimony_id !== "unknown" ? `Sermon ${h.testimony_id}` : "Saved Passage");
+                const speaker = h.speaker || t?.speaker || "William Marrion Branham";
                 const paraNum = h.paragraph_number ?? h.paragraph_index ?? null;
+
                 return (
                   <Pressable
                     key={h.id}
                     onPress={() => setSelectedHighlight(h)}
                     style={styles.hlCard}
                   >
-                    {/* Premium paragraph number display */}
-                    {paraNum !== null && (
-                      <Text style={styles.hlParaNum}>{paraNum}</Text>
-                    )}
+                    <View style={styles.hlHeaderRow}>
+                      <Text style={styles.hlCode}>{code}</Text>
+                      {paraNum !== null && (
+                        <Text style={styles.hlParaBadge}>Paragraph {paraNum}</Text>
+                      )}
+                    </View>
+
+                    <Text style={styles.hlTitle}>{title}</Text>
+                    <Text style={styles.hlSpeaker}>{speaker}</Text>
+
                     <TranscriptParagraphText
                       text={`\u201C${h.quote}\u201D`}
                       fontSize={fontSize}
@@ -217,7 +231,6 @@ export default function LibraryScreen() {
                       numberOfLines={4}
                     />
                     <View style={styles.hlFooter}>
-                      <Text style={styles.hlSource}>{t ? `— ${t.title}` : ""}</Text>
                       <Pressable
                         onPress={async () => {
                           await api.deleteHighlight(h.id).catch(() => {});
@@ -288,87 +301,104 @@ export default function LibraryScreen() {
       </ScrollView>
 
       {/* Highlight Detail Bottom Sheet (with Deep Link) */}
-      {selectedHighlight && (
-        <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
-          <Pressable style={styles.sheetOverlay} onPress={() => setSelectedHighlight(null)} />
-          <View style={[styles.sheetContent, { backgroundColor: colors.background, borderColor: colors.hairline }]}>
-            <View style={styles.sheetHandle} />
+      {selectedHighlight && (() => {
+        const t = findTestimony(selectedHighlight.testimony_id);
+        const code = selectedHighlight.date_code || (t?.year ? String(t.year) : (selectedHighlight.testimony_id !== "unknown" ? selectedHighlight.testimony_id : ""));
+        const title = selectedHighlight.testimony_title || t?.title || (selectedHighlight.testimony_id !== "unknown" ? `Sermon ${selectedHighlight.testimony_id}` : "Saved Passage");
+        const speaker = selectedHighlight.speaker || t?.speaker || "William Marrion Branham";
+        const paraNum = selectedHighlight.paragraph_number ?? selectedHighlight.paragraph_index ?? 1;
 
-            {/* Premium para number display */}
-            {(selectedHighlight.paragraph_number ?? selectedHighlight.paragraph_index) !== undefined && (
-              <Text style={[styles.sheetParaNum, { color: colors.emerald, textAlign: "center", marginBottom: spacing[2] }]}>
-                Paragraph {(selectedHighlight.paragraph_number ?? selectedHighlight.paragraph_index ?? 0)}
-              </Text>
-            )}
+        return (
+          <View style={[StyleSheet.absoluteFillObject, { zIndex: 1000 }]} pointerEvents="box-none">
+            <Pressable style={styles.sheetOverlay} onPress={() => setSelectedHighlight(null)} />
+            <View
+              style={[
+                styles.sheetContent,
+                {
+                  backgroundColor: colors.background,
+                  borderColor: colors.hairline,
+                  paddingBottom: Math.max(insets.bottom + spacing[5], spacing[8]),
+                },
+              ]}
+            >
+              <View style={styles.sheetHandle} />
 
-            <ScrollView style={{ maxHeight: 200, marginBottom: spacing[4] }} showsVerticalScrollIndicator={false}>
-              <TranscriptParagraphText
-                text={`\u201C${selectedHighlight.quote}\u201D`}
-                fontSize={fontSize}
-                style={[styles.hlQuote, { color: colors.foreground }]}
-              />
-            </ScrollView>
-
-            <View style={styles.sheetMeta}>
-              <Text style={[styles.sheetTitle, { color: colors.foreground }]}>
-                {findTestimony(selectedHighlight.testimony_id)?.title || "Unknown Sermon"}
-              </Text>
-              <Text style={[styles.sheetSpeaker, { color: colors.mutedForeground }]}>
-                {findTestimony(selectedHighlight.testimony_id)?.speaker || "William Marrion Branham"}
-                {findTestimony(selectedHighlight.testimony_id)?.year ? ` · ${findTestimony(selectedHighlight.testimony_id)?.year}` : ""}
-              </Text>
-            </View>
-
-            <View style={{ gap: spacing[3], marginTop: spacing[5] }}>
-              {/* Deep link: Go to Reading Mode at this paragraph */}
-              <Pressable
-                style={[styles.sheetBtn, { backgroundColor: colors.emerald }]}
-                onPress={() => {
-                  const paraNum = selectedHighlight.paragraph_number ?? selectedHighlight.paragraph_index ?? 1;
-                  router.push({
-                    pathname: "/reading-mode",
-                    params: {
-                      id: selectedHighlight.testimony_id,
-                      targetIndex: String(paraNum - 1),
-                    },
-                  });
-                  setSelectedHighlight(null);
-                }}
-              >
-                <Ionicons name="book" size={18} color={theme === "dark" ? colors.background : "#fff"} />
-                <Text style={[styles.sheetBtnText, { color: theme === "dark" ? colors.background : "#fff" }]}>
-                  Read in Context
+              {/* Sermon Code & Paragraph Number Header */}
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing[3] }}>
+                <Text style={styles.hlCode}>{code}</Text>
+                <Text style={[styles.sheetParaNum, { color: colors.emerald }]}>
+                  Paragraph {paraNum}
                 </Text>
-              </Pressable>
+              </View>
 
-              {/* Play from highlight if we have time info */}
-              {findTestimony(selectedHighlight.testimony_id) &&
-               getContentType(findTestimony(selectedHighlight.testimony_id)!) !== "transcript" &&
-               selectedHighlight.start_seconds !== undefined && (
+              {/* Highlight Quote ScrollView */}
+              <ScrollView style={{ maxHeight: 180, marginBottom: spacing[4] }} showsVerticalScrollIndicator={false}>
+                <TranscriptParagraphText
+                  text={`\u201C${selectedHighlight.quote}\u201D`}
+                  fontSize={fontSize}
+                  style={[styles.hlQuote, { color: colors.foreground }]}
+                />
+              </ScrollView>
+
+              {/* Sermon Meta Header */}
+              <View style={styles.sheetMeta}>
+                <Text style={[styles.sheetTitle, { color: colors.foreground }]}>
+                  {title}
+                </Text>
+                <Text style={[styles.sheetSpeaker, { color: colors.mutedForeground }]}>
+                  {speaker} {code ? `· ${code}` : ""}
+                </Text>
+              </View>
+
+              {/* Action Buttons */}
+              <View style={{ gap: spacing[3], marginTop: spacing[5] }}>
+                {/* Deep link: Go to Reading Mode at this paragraph */}
                 <Pressable
-                  style={[styles.sheetBtn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.hairline }]}
+                  style={[styles.sheetBtn, { backgroundColor: colors.emerald }]}
                   onPress={() => {
-                    const t = findTestimony(selectedHighlight.testimony_id);
-                    if (t) {
-                      p.play(t);
-                      p.seekTo(selectedHighlight.start_seconds!);
-                      router.push("/player");
-                      setSelectedHighlight(null);
-                    }
+                    router.push({
+                      pathname: "/reading-mode",
+                      params: {
+                        id: selectedHighlight.testimony_id,
+                        targetIndex: String(paraNum - 1),
+                      },
+                    });
+                    setSelectedHighlight(null);
                   }}
                 >
-                  <Ionicons name="play" size={18} color={colors.foreground} />
-                  <Text style={[styles.sheetBtnText, { color: colors.foreground }]}>Play From Here</Text>
+                  <Ionicons name="book" size={18} color={theme === "dark" ? colors.background : "#fff"} />
+                  <Text style={[styles.sheetBtnText, { color: theme === "dark" ? colors.background : "#fff" }]}>
+                    Read in Context
+                  </Text>
                 </Pressable>
-              )}
 
-              <Pressable style={[styles.sheetBtn, { backgroundColor: "transparent" }]} onPress={() => setSelectedHighlight(null)}>
-                <Text style={[styles.sheetBtnText, { color: colors.mutedForeground }]}>Close</Text>
-              </Pressable>
+                {/* Play from highlight if audio is available */}
+                {(t || selectedHighlight.start_seconds !== undefined) && (
+                  <Pressable
+                    style={[styles.sheetBtn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.hairline }]}
+                    onPress={() => {
+                      const sermonObj = t || { id: selectedHighlight.testimony_id, title, speaker, year: parseInt(code) || undefined };
+                      p.play(sermonObj as Testimony);
+                      if (selectedHighlight.start_seconds !== undefined) {
+                        p.seekTo(selectedHighlight.start_seconds);
+                      }
+                      router.push("/player");
+                      setSelectedHighlight(null);
+                    }}
+                  >
+                    <Ionicons name="play" size={18} color={colors.foreground} />
+                    <Text style={[styles.sheetBtnText, { color: colors.foreground }]}>Play From Here</Text>
+                  </Pressable>
+                )}
+
+                <Pressable style={[styles.sheetBtn, { backgroundColor: "transparent" }]} onPress={() => setSelectedHighlight(null)}>
+                  <Text style={[styles.sheetBtnText, { color: colors.mutedForeground }]}>Close</Text>
+                </Pressable>
+              </View>
             </View>
           </View>
-        </View>
-      )}
+        );
+      })()}
     </View>
   );
 }
@@ -381,6 +411,11 @@ const getStyles = (colors: any, theme: string) => StyleSheet.create({
   chipText: { fontSize: 13, color: colors.mutedForeground, fontFamily: typography.sansSemi },
   chipTextActive: { color: theme === "dark" ? colors.background : "#fff" },
   hlCard: { borderLeftWidth: 3, borderLeftColor: colors.emerald, borderRadius: radii.xl, backgroundColor: theme === "dark" ? "rgba(20, 26, 24, 0.7)" : "rgba(233, 236, 239, 0.7)", borderWidth: 1, borderColor: colors.hairline, padding: spacing[4], marginBottom: spacing[3] },
+  hlHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing[2] },
+  hlCode: { fontSize: 13, fontFamily: typography.sansSemi, color: colors.gold },
+  hlTitle: { fontSize: 16, fontFamily: typography.serif, color: colors.foreground, marginBottom: 2 },
+  hlSpeaker: { fontSize: 13, fontFamily: typography.sans, color: colors.mutedForeground, marginBottom: spacing[3] },
+  hlParaBadge: { fontSize: 12, fontFamily: typography.sansSemi, color: colors.emerald, letterSpacing: 0.5 },
   hlParaNum: { fontSize: 20, fontFamily: typography.serif, color: colors.mutedForeground, opacity: 0.25, marginBottom: spacing[2] },
   hlQuote: { color: colors.foreground, lineHeight: 26 },
   hlFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: spacing[3], paddingTop: spacing[3], borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.white8 },

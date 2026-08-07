@@ -30,6 +30,16 @@ export function MiniPlayer() {
   const translateY = useRef(new Animated.Value(0)).current;
   const opacity = useRef(new Animated.Value(1)).current;
 
+  const sheetOpacity = useRef(new Animated.Value(p.isSheetOpen ? 0 : 1)).current;
+
+  React.useEffect(() => {
+    Animated.timing(sheetOpacity, {
+      toValue: p.isSheetOpen ? 0 : 1,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  }, [p.isSheetOpen, sheetOpacity]);
+
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, gestureState) => {
@@ -107,9 +117,10 @@ export function MiniPlayer() {
 
   return (
     <Animated.View
+      pointerEvents={p.isSheetOpen ? "none" : "auto"}
       style={{
         transform: [{ translateY }],
-        opacity,
+        opacity: Animated.multiply(opacity, sheetOpacity),
       }}
       {...panResponder.panHandlers}
     >
